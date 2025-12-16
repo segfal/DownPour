@@ -1,0 +1,53 @@
+name: CUDA Smoke Test
+
+on:
+  push:
+    branches:
+      - test/testcuda
+  pull_request:
+    branches:
+      - test/testcuda
+
+jobs:
+  cuda-smoke-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install CUDA Toolkit
+      uses: Jimver/cuda-toolkit@v0.2.14
+      with:
+        cuda: '12.2.0'
+        method: 'network'
+    
+    - name: Verify CUDA installation
+      run: |
+        nvcc --version
+        nvidia-smi || echo "No GPU available (expected in GitHub Actions)"
+    
+    - name: Configure CMake with CUDA
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DBUILD_CUDA_TEST=ON
+    
+    - name: Build CUDA test
+      run: |
+        cd build
+        make test_cuda
+    
+    - name: Run CUDA smoke test
+      run: |
+        cd build
+        ./test_cuda
+    
+    - name: Upload build artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cuda-test-executable
+        path: build/test_cuda
