@@ -1,0 +1,298 @@
+{
+	"model": {
+		"targetLength": 4.7,
+		"orientation": {
+			"euler": [
+				0,
+				180,
+				0
+			],
+			"unit": "degrees",
+			"order": "XYZ"
+		},
+		"scale": {
+			"uniform": 1.0,
+			"xyz": [
+				1.0,
+				1.0,
+				1.0
+			]
+		},
+		"positionOffset": [
+			0,
+			0,
+			0
+		]
+	},
+	"camera": {
+		"cockpit": {
+			"position": {
+				"xyz": [
+					1.8,
+					4.4,
+					0
+				],
+				"description": "Position in model local space",
+				"_xyz_desc": "Local coordinates: [X (Right), Y (Up), Z (Back)] - depending on model orientation",
+				"_notes": "For this BMW model: Y is Up, Z is Forward/Back"
+			},
+			"rotation": {
+				"quaternion": [
+					0,
+					0,
+					0,
+					1
+				],
+				"euler": [
+					0,
+					0,
+					0
+				],
+				"eulerUnit": "degrees",
+				"_euler_desc": "Euler angles: [Pitch (X), Yaw (Y), Roll (Z)]",
+				"preferQuaternion": false
+			},
+			"fov": 75.0,
+			"nearPlane": 0.1,
+			"farPlane": 10000.0
+		},
+		"chase": {
+			"distance": 1.0,
+			"height": 1.0,
+			"stiffness": 5.0
+		},
+		"thirdPerson": {
+			"distance": 1.0,
+			"height": 1.0,
+			"angle": 0.0
+		}
+	},
+	"parts": {
+		"windshield": {
+			"enabled": true,
+			"material": {
+				"transparency": 0.3,
+				"refractionIndex": 1.5,
+				"tint": [
+					0.9,
+					0.95,
+					1.0
+				]
+			},
+			"wipers": {
+				"enabled": true,
+				"speed": 90.0,
+				"angleRange": [
+					-45.0,
+					45.0
+				],
+				"parkingAngle": -45.0
+			},
+			"rainEffects": {
+				"enabled": true,
+				"dropletSize": 0.002,
+				"flowSpeed": 0.5
+			}
+		},
+		"wheels": {
+			"radius": 0.35,
+			"width": 0.22,
+			"rotationAxis": [
+				1,
+				0,
+				0
+			],
+			"individual": {
+				"front_left": {
+					"steerMultiplier": 1.0,
+					"driveMultiplier": 1.0,
+					"position": [
+						-0.8,
+						1.425,
+						0.0
+					]
+				},
+				"front_right": {
+					"steerMultiplier": 1.0,
+					"driveMultiplier": 1.0,
+					"position": [
+						0.8,
+						1.425,
+						0.0
+					]
+				},
+				"rear_left": {
+					"steerMultiplier": 0.0,
+					"driveMultiplier": 1.0,
+					"position": [
+						-0.8,
+						-1.425,
+						0.0
+					]
+				},
+				"rear_right": {
+					"steerMultiplier": 0.0,
+					"driveMultiplier": 1.0,
+					"position": [
+						0.8,
+						-1.425,
+						0.0
+					]
+				}
+			}
+		},
+		"steeringWheel": {
+			"maxRotation": 450.0,
+			"rotationAxis": [
+				0,
+				0,
+				1
+			],
+			"sensitivity": 1.0,
+			"returnSpeed": 3.0,
+			"position": [
+				0.0,
+				3.5,
+				-1.5
+			]
+		},
+		"doors": {
+			"openAngle": 45.0,
+			"openSpeed": 2.0,
+			"rotationAxis": [
+				0,
+				0,
+				1
+			],
+			"individual": {
+				"left": {
+					"hingePosition": [
+						-0.9,
+						0.0,
+						0.0
+					],
+					"openDirection": 1.0
+				},
+				"right": {
+					"hingePosition": [
+						0.9,
+						0.0,
+						0.0
+					],
+					"openDirection": -1.0
+				}
+			}
+		},
+		"hood": {
+			"openAngle": 60.0,
+			"openSpeed": 1.5,
+			"rotationAxis": [
+				1,
+				0,
+				0
+			],
+			"hingePosition": [
+				0.0,
+				2.0,
+				0.0
+			]
+		},
+		"lights": {
+			"headlights": {
+				"intensity": 1.0,
+				"color": [
+					1.0,
+					0.95,
+					0.9
+				],
+				"range": 50.0,
+				"spotAngle": 45.0
+			},
+			"taillights": {
+				"intensity": 0.8,
+				"color": [
+					1.0,
+					0.1,
+					0.0
+				],
+				"range": 10.0
+			},
+			"brakelights": {
+				"intensity": 1.5,
+				"color": [
+					1.0,
+					0.0,
+					0.0
+				],
+				"activationThreshold": 0.1
+			}
+		}
+	},
+	"roles": {
+		"wheel_FL": "3DWheel Front L_04",
+		"wheel_FR": "3DWheel Front R_04",
+		"wheel_RL": "3DWheel Rear L_04",
+		"wheel_RR": "3DWheel Rear R_04",
+		"steering_wheel_back": "steering_wheel_back",
+		"steering_wheel_front": "steering_wheel_front",
+		"left_wiper": "left_wiper",
+		"right_wiper": "right_wiper",
+		"windshield": "windshield_glass",
+		"hood": "hood_mesh",
+		"door_left": "door_left_mesh",
+		"door_right": "door_right_mesh",
+		"headlights": "headlight_group",
+		"taillights": "taillight_group"
+	},
+	"physics": {
+		"wheelBase": 2.85,
+		"trackWidth": 1.6,
+		"wheelRadius": 0.35,
+		"maxSteerAngle": 35.0,
+		"maxAcceleration": 5.0,
+		"maxBraking": 8.0,
+		"mass": 1500.0,
+		"dragCoefficient": 0.3,
+		"rollingResistance": 0.015
+	},
+	"animation": {
+		"idleAnimations": {
+			"engineVibration": {
+				"enabled": true,
+				"frequency": 30.0,
+				"amplitude": 0.001
+			}
+		},
+		"turnSignals": {
+			"blinkFrequency": 1.5,
+			"leftNodes": [
+				"turn_signal_FL",
+				"turn_signal_RL"
+			],
+			"rightNodes": [
+				"turn_signal_FR",
+				"turn_signal_RR"
+			]
+		}
+	},
+	"initialState": {
+		"position": [
+			0,
+			0,
+			0
+		],
+		"_comment_position": "x (+Right/-Left), y (+Up/-Down), z (+Back/-Forward)",
+		"rotation": [
+			0,
+			-90,
+			0
+		],
+		"_comment_rotation": "x (Pitch), y (Yaw), z (Roll) in degrees"
+	},
+	"debug": {
+		"showColliders": false,
+		"showSkeleton": false,
+		"showCameraTarget": false,
+		"showVelocityVector": false
+	}
+}

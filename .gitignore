@@ -1,0 +1,12 @@
+build/
+simple_docs.md
+.obsidian/
+TODO.md
+.DS_Store
+.vscode/
+Guideline.md
+SCENE_SCALE_PLAN.md
+Output.md
+.cache
+.canvas
+*.o
