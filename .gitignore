@@ -1,1 +1,6 @@
 build/
+simple_docs.md
+.obsidian/
+TODO.md
+.DS_Store
+.vscode/

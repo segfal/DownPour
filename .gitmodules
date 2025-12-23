@@ -5,4 +5,12 @@
 [submodule "headers/glad"]
 	path = headers/glad
 	url = https://github.com/Dav1dde/glad.git
-    
+
+[submodule "headers/chrono"]
+	path = headers/chrono
+	url = https://github.com/projectchrono/chrono.git
+
+
+[submodule "headers/glm"]
+	path = headers/glm
+	url = https://github.com/g-truc/glm.git
