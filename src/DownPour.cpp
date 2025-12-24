@@ -78,7 +78,6 @@ void Application::createInstance() {
         throw std::runtime_error("Failed to create Vulkan instance!");
     }
 
-    std::cout << "✅ Vulkan instance created successfully on M3 Mac!" << std::endl;
 }
 
 Vulkan::QueueFamilyIndices Application::findQueueFamilies(VkPhysicalDevice device) {
@@ -135,7 +134,7 @@ void Application::pickPhysicalDevice() {
         throw std::runtime_error("Failed to find a suitable GPU!");
     }
 
-    std::cout << "✅ Physical device selected!" << std::endl;
+    
 }
 
 void Application::createLogicalDevice() {
@@ -194,7 +193,7 @@ void Application::createLogicalDevice() {
     vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
     vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 
-    std::cout << "✅ Logical device created!" << std::endl;
+    
 }
 
 Vulkan::SwapChainSupportDetails Application::querySwapChainSupport(VkPhysicalDevice device) {
@@ -309,7 +308,6 @@ void Application::createSwapChain() {
     swapchainImageFormat = surfaceFormat.format;
     swapchainExtent = extent;
 
-    std::cout << "✅ Swap chain created!" << std::endl;
 }
 
 void Application::mainLoop() {
