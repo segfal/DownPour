@@ -1,7 +1,11 @@
 #pragma once
 
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
 #include <optional>
 #include <cstdint>
+#include <vector>
 
 namespace DownPour {
 namespace Vulkan {
@@ -23,6 +27,18 @@ struct QueueFamilyIndices {
     bool isComplete() const {
         return graphicsFamily.has_value() && presentFamily.has_value();
     }
+};
+
+/**
+ * @brief Helper struct to store swap chain support details
+ * 
+ * Contains information about surface capabilities, formats, and present modes
+ * required for swap chain creation.
+ */
+struct SwapChainSupportDetails {
+    VkSurfaceCapabilitiesKHR capabilities;
+    std::vector<VkSurfaceFormatKHR> formats;
+    std::vector<VkPresentModeKHR> presentModes;
 };
 
 } // namespace Vulkan
