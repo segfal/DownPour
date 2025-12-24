@@ -156,19 +156,36 @@ void Application::createLogicalDevice() {
 
     VkPhysicalDeviceFeatures deviceFeatures{};
 
-    // Enable required device extensions (swapchain + portability for MoltenVK)
-    const char* deviceExtensions[] = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        "VK_KHR_portability_subset"
+    // Enable required device extensions
+    std::vector<const char*> deviceExtensions = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
+
+    // Check if portability subset extension is available (required for MoltenVK on macOS)
+    uint32_t extensionCount;
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr);
+    std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, availableExtensions.data());
+
+    bool portabilitySubsetAvailable = false;
+    for (const auto& extension : availableExtensions) {
+        if (strcmp(extension.extensionName, "VK_KHR_portability_subset") == 0) {
+            portabilitySubsetAvailable = true;
+            break;
+        }
+    }
+
+    if (portabilitySubsetAvailable) {
+        deviceExtensions.push_back("VK_KHR_portability_subset");
+    }
 
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
     createInfo.pQueueCreateInfos = queueCreateInfos.data();
     createInfo.pEnabledFeatures = &deviceFeatures;
-    createInfo.enabledExtensionCount = 2;
-    createInfo.ppEnabledExtensionNames = deviceExtensions;
+    createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+    createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
     if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create logical device!");
