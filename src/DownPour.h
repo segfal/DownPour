@@ -3,7 +3,10 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include "vulkan/VulkanTypes.h"
+
 #include <cstdint>
+#include <vector>
 
 namespace DownPour {
 
@@ -34,18 +37,39 @@ private:
     // GLFW and Vulkan handles
     GLFWwindow* window = nullptr;
     VkInstance instance = VK_NULL_HANDLE;
+    VkDevice device = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+    
+    // Queue handles
+    VkQueue graphicsQueue = VK_NULL_HANDLE;
+    VkQueue presentQueue = VK_NULL_HANDLE;
+    
+    // Swap chain
+    VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+    std::vector<VkImage> swapchainImages;
+    VkFormat swapchainImageFormat;
+    VkExtent2D swapchainExtent;
 
     // Initialization methods
     void initWindow();
     void initVulkan();
     void createInstance();
     void createSurface();
+    void pickPhysicalDevice();
+    void createLogicalDevice();
+    void createSwapChain();
 
     // Main loop and cleanup
     void mainLoop();
     void cleanup();
+    
+    // Helper methods
+    Vulkan::QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
+    Vulkan::SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
+    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
+    VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
+    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
 };
 
 } // namespace DownPour
