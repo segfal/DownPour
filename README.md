@@ -76,10 +76,15 @@ Currently optimized for macOS (M3 Mac) with Metal backend support via MoltenVK.
 
 ## Code Style Guidelines
 
+This project follows the [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html). For detailed coding standards, see [CODING_STANDARDS.md](CODING_STANDARDS.md).
+
+**Quick Reference:**
 - **Namespaces**: All application code is within the `DownPour` namespace
-- **Documentation**: Classes and methods include Doxygen-style comments
-- **Naming**: Clear, descriptive names following C++ conventions
+- **Naming**: PascalCase for classes, camelCase for functions/variables
+- **Documentation**: Doxygen-style comments for all public APIs
+- **Formatting**: 4 spaces indentation, K&R brace style
 - **Modularity**: Each component has a single, well-defined responsibility
+- **Modern C++**: Use C++17 features (auto, nullptr, constexpr, etc.)
 
 ## Future Enhancements
 
@@ -88,3 +93,14 @@ As the project grows, consider:
 - Creating a dedicated Vulkan renderer class
 - Adding shader management utilities
 - Implementing resource management systems
+
+## Contributing
+
+Contributions are welcome! Please ensure your code follows the [coding standards](CODING_STANDARDS.md) before submitting a pull request.
+
+### Before Submitting
+- Read and follow [CODING_STANDARDS.md](CODING_STANDARDS.md)
+- Ensure code compiles without warnings
+- Add documentation for public APIs
+- Test your changes thoroughly
+- Run code formatting and linting tools
