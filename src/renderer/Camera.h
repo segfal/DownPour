@@ -24,7 +24,6 @@ private:
     f32 pitch, yaw;
     f32 fov, aspectRatio, nearPlane, farPlane;
    
-    void updateCameraVectors(); // recalculate forward, right, up vectors // TODO: implement
+    void updateCameraVectors(); // recalculate forward, right, up vectors
 
 };
-
