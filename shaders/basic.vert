@@ -1,20 +1,42 @@
 #version 450
 
-vec2 positions[3] = vec2[](
-    vec2(0.0, -0.5),
-    vec2(0.5, 0.5),
-    vec2(-0.5, 0.5)
-);
+  layout(set = 0, binding = 0) uniform CameraUBO {
+      mat4 view;
+      mat4 projection;
+      mat4 viewProjection;
+  } camera;
 
-vec3 colors[3] = vec3[](
-    vec3(1.0, 0.0, 0.0),
-    vec3(0.0, 1.0, 0.0),
-    vec3(0.0, 0.0, 1.0)
-);
+  // Hardcoded cube vertices (36 vertices for 6 faces)
+  vec3 positions[36] = vec3[](
+      // Front face
+      vec3(-1.0, -1.0,  1.0), vec3( 1.0, -1.0,  1.0), vec3( 1.0,  1.0,  1.0),
+      vec3( 1.0,  1.0,  1.0), vec3(-1.0,  1.0,  1.0), vec3(-1.0, -1.0,  1.0),
+      // Back face
+      vec3( 1.0, -1.0, -1.0), vec3(-1.0, -1.0, -1.0), vec3(-1.0,  1.0, -1.0),
+      vec3(-1.0,  1.0, -1.0), vec3( 1.0,  1.0, -1.0), vec3( 1.0, -1.0, -1.0),
+      // Top face
+      vec3(-1.0,  1.0,  1.0), vec3( 1.0,  1.0,  1.0), vec3( 1.0,  1.0, -1.0),
+      vec3( 1.0,  1.0, -1.0), vec3(-1.0,  1.0, -1.0), vec3(-1.0,  1.0,  1.0),
+      // Bottom face
+      vec3(-1.0, -1.0, -1.0), vec3( 1.0, -1.0, -1.0), vec3( 1.0, -1.0,  1.0),
+      vec3( 1.0, -1.0,  1.0), vec3(-1.0, -1.0,  1.0), vec3(-1.0, -1.0, -1.0),
+      // Right face
+      vec3( 1.0, -1.0,  1.0), vec3( 1.0, -1.0, -1.0), vec3( 1.0,  1.0, -1.0),
+      vec3( 1.0,  1.0, -1.0), vec3( 1.0,  1.0,  1.0), vec3( 1.0, -1.0,  1.0),
+      // Left face
+      vec3(-1.0, -1.0, -1.0), vec3(-1.0, -1.0,  1.0), vec3(-1.0,  1.0,  1.0),
+      vec3(-1.0,  1.0,  1.0), vec3(-1.0,  1.0, -1.0), vec3(-1.0, -1.0, -1.0)
+  );
 
-layout(location = 0) out vec3 fragColor;
+  layout(location = 0) out vec3 fragColor;
 
-void main() {
-    gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-    fragColor = colors[gl_VertexIndex];
-}
+  void main() {
+      vec3 pos = positions[gl_VertexIndex] * 100.0;  // Large skybox
+      gl_Position = camera.viewProjection * vec4(pos, 1.0);
+
+      // Gradient sky color (darker at bottom, lighter at top)
+      float t = (positions[gl_VertexIndex].y + 1.0) * 0.5;  // 0 to 1
+      vec3 skyBottom = vec3(0.3, 0.4, 0.6);  // Blue-grey
+      vec3 skyTop = vec3(0.5, 0.7, 1.0);     // Light blue
+      fragColor = mix(skyBottom, skyTop, t);
+  }

@@ -14,9 +14,21 @@ add_subdirectory(headers/glfw)
 # Vulkan
 find_package(Vulkan REQUIRED)
 
-add_executable(${PROJECT_NAME} 
+add_executable(${PROJECT_NAME}
     main.cpp
     src/DownPour.cpp
+    src/renderer/Camera.cpp
+    src/renderer/Mesh.cpp
+    src/renderer/Scene.cpp
+    src/renderer/Texture.cpp
+    src/renderer/DescriptorAllocator.cpp
+    src/renderer/Shader.cpp
+    src/renderer/PipelineBuilder.cpp
+    src/renderer/Material.cpp
+    src/renderer/FrameResources.cpp
+    src/renderer/Renderer.cpp
+    src/renderer/Vertex.cpp
+    src/renderer/Model.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
@@ -27,6 +39,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE 
+    ${CMAKE_SOURCE_DIR}/src
     headers/glfw/include
     headers/glm
 )
+
+target_include_directories(${PROJECT_NAME} PRIVATE headers/tinygltf)
+add_definitions(-DTINYGLTF_NOEXCEPTION)
