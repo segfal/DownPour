@@ -8,6 +8,34 @@ Camera::Camera(vec3 pos, f32 aspect)
     updateCameraVectors();
 }
 
+Camera::Camera(vec3 pos, f32 aspect, f32 yawAngle, f32 pitchAngle)
+    : position(pos), aspectRatio(aspect), pitch(pitchAngle), yaw(yawAngle),
+      fov(45.0f), nearPlane(0.1f), farPlane(100.0f) {
+    updateCameraVectors();
+}
+
+void Camera::setYaw(f32 newYaw) {
+    yaw = newYaw;
+    updateCameraVectors();
+}
+
+void Camera::setPitch(f32 newPitch) {
+    pitch = glm::clamp(newPitch, -89.0f, 89.0f);
+    updateCameraVectors();
+}
+
+void Camera::setPosition(vec3 pos) {
+    position = pos;
+}
+
+void Camera::setFOV(f32 newFOV) {
+    fov = glm::clamp(newFOV, 30.0f, 120.0f);
+}
+
+void Camera::setFarPlane(f32 newFarPlane) {
+    farPlane = newFarPlane;
+}
+
 mat4 Camera::getViewMatrix() {
     return glm::lookAt(position, position + forward, up);
 }
