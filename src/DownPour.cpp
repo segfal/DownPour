@@ -1417,20 +1417,14 @@ VkFormat Application::findSupportedFormat(const std::vector<VkFormat>& candidate
 
       // Get UNSCALED model dimensions
       glm::vec3 dimensions = carModel.getDimensions();
-      glm::vec3 minBounds = carModel.getMinBounds();
-      glm::vec3 maxBounds = carModel.getMaxBounds();
 
       std::cout << "\n=== CAR SCALE CALCULATION ===" << std::endl;
       std::cout << "Original model dimensions: " << dimensions.x << " x " << dimensions.y << " x " << dimensions.z << std::endl;
-      std::cout << "Original model length (Z): " << dimensions.z << " units" << std::endl;
 
       // BMW M3 target dimensions in meters (1 unit = 1 meter)
       const float targetLength = 4.7f;   // meters
-      const float targetWidth = 1.9f;    // meters
-      const float targetHeight = 1.4f;   // meters
 
       // Calculate scale factor based on length (Z dimension)
-      // We assume the model's Z dimension represents length
       carScaleFactor = targetLength / dimensions.z;
 
       std::cout << "Target BMW M3 length: " << targetLength << " meters" << std::endl;
@@ -1447,21 +1441,14 @@ VkFormat Application::findSupportedFormat(const std::vector<VkFormat>& candidate
       modelMatrix = glm::scale(modelMatrix, glm::vec3(carScaleFactor, carScaleFactor, carScaleFactor));
       carModel.setModelMatrix(modelMatrix);
 
-      // Calculate cockpit offset based on SCALED dimensions
-      // Driver's seat position as percentage of car dimensions:
-      // X: 35% from left edge (driver's side, accounting for left-hand drive)
-      // Y: 55% of height (seated eye level, slightly lower)
-      // Z: 60% from rear (driver's seat is closer to rear of car)
-      cockpitOffset.x = (minBounds.x + dimensions.x * 0.35f) * carScaleFactor;
-      cockpitOffset.y = (minBounds.y + dimensions.y * 0.55f) * carScaleFactor;
-      cockpitOffset.z = (minBounds.z + dimensions.z * 0.60f) * carScaleFactor;
-
+      // Note: cockpitOffset is hard-coded in the header (0.0, 1.2, 0.5)
+      // This provides a reasonable default cockpit view position
+      // Can be adjusted later based on specific car models if needed
       std::cout << "=== COCKPIT POSITION ===" << std::endl;
-      std::cout << "Calculated cockpit offset: ("
+      std::cout << "Using hard-coded cockpit offset: ("
                 << cockpitOffset.x << ", "
                 << cockpitOffset.y << ", "
                 << cockpitOffset.z << ")" << std::endl;
-      std::cout << "Driver eye position will be ~" << cockpitOffset.y << " meters from ground" << std::endl;
       std::cout << "========================\n" << std::endl;
   }
 
@@ -1721,8 +1708,8 @@ VkFormat Application::findSupportedFormat(const std::vector<VkFormat>& candidate
   }
 
   void Application::updateCameraForCockpit() {
-      // Simplified cockpit camera with hard-coded offset
-      // The offset is defined in the header as a reasonable default
+      // Use hard-coded cockpit offset defined in header (0.0, 1.2, 0.5)
+      // This provides a reasonable default driver's eye position
       
       // Rotate offset by car rotation
       glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
