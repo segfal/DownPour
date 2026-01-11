@@ -8,6 +8,7 @@
 #include "renderer/Vertex.h"
 #include "renderer/Model.h"
 #include "simulation/WeatherSystem.h"
+#include "simulation/WindshieldSurface.h"
 
 #include <cstdint>
 #include <vector>
@@ -73,6 +74,7 @@ private:
     
     // Weather simulation system
     Simulation::WeatherSystem weatherSystem;
+    Simulation::WindshieldSurface windshield;
 
     // GLFW and Vulkan handles
     GLFWwindow* window = nullptr;
@@ -121,6 +123,11 @@ private:
     VkDescriptorPool carDescriptorPool = VK_NULL_HANDLE;
     // 2D vector: [materialIndex][frameIndex]
     std::vector<std::vector<VkDescriptorSet>> carDescriptorSets;
+
+    // Windshield rendering
+    VkPipeline windshieldPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout windshieldPipelineLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout windshieldDescriptorLayout = VK_NULL_HANDLE;
 
     // Initialization methods
     void initWindow();
@@ -203,6 +210,10 @@ private:
     void loadCarModel();
     void createCarPipeline();
     void createCarDescriptorSets();
+
+    // Windshield rendering methods
+    void createWindshieldPipeline();
+    void renderWindshield(VkCommandBuffer cmd, uint32_t frameIndex);
 
     // Car simulation methods
     void updateCarPhysics(float deltaTime);
