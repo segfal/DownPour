@@ -82,6 +82,10 @@ void Application::initVulkan() {
     createCarPipeline();
     createCarDescriptorSets();
 
+    // Initialize windshield surface
+    windshield.initialize(device, physicalDevice, commandPool, graphicsQueue);
+    createWindshieldPipeline();
+
     createSyncObjects();
 
     float aspect = static_cast<float>(swapchainExtent.width) / static_cast<float>(swapchainExtent.height);
@@ -98,11 +102,24 @@ void Application::initVulkan() {
 
     std::cout << "\n=== CONTROLS ===" << std::endl;
     std::cout << "Press 'R' to toggle RAIN weather effects" << std::endl;
+    std::cout << "Press 'I' to activate windshield WIPERS" << std::endl;
     std::cout << "Camera: COCKPIT view (mouse to look around)" << std::endl;
     std::cout << "========================\n" << std::endl;
 }
 
 void Application::cleanup() {
+    // Clean up windshield resources
+    windshield.cleanup(device);
+    if (windshieldPipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device, windshieldPipeline, nullptr);
+    }
+    if (windshieldPipelineLayout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device, windshieldPipelineLayout, nullptr);
+    }
+    if (windshieldDescriptorLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, windshieldDescriptorLayout, nullptr);
+    }
+
     vkDestroyImageView(device, depthImageView, nullptr);
     vkDestroyImage(device, depthImage, nullptr);
     vkFreeMemory(device, depthImageMemory, nullptr);
@@ -1058,6 +1075,16 @@ void Application::mainLoop() {
         
         // Update weather system
         weatherSystem.update(deltaTime);
+        
+        // Update windshield with rain data
+        windshield.update(deltaTime, weatherSystem.getActiveDrops());
+        
+        // Handle wiper control with I key
+        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) {
+            windshield.setWiperActive(true);
+        } else {
+            windshield.setWiperActive(false);
+        }
 
         glfwPollEvents();
         drawFrame();
@@ -1719,5 +1746,17 @@ VkFormat Application::findSupportedFormat(const std::vector<VkFormat>& candidate
       camera.setPosition(carPosition + rotatedOffset);
   }
 
+void Application::createWindshieldPipeline() {
+    // TODO: Implement windshield pipeline creation
+    // This will be a simple quad rendering pipeline with the windshield shader
+    std::cout << "Windshield pipeline creation placeholder" << std::endl;
+}
+
+void Application::renderWindshield(VkCommandBuffer cmd, uint32_t frameIndex) {
+    // TODO: Implement windshield rendering
+    // This will render a full-screen quad with the windshield effect
+    (void)cmd;
+    (void)frameIndex;
+}
 
 } // namespace DownPour

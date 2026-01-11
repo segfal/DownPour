@@ -19,7 +19,6 @@ struct Material {
     VkSampler textureSampler = VK_NULL_HANDLE;
     uint32_t indexStart = 0;  // Starting index in the index buffer
     uint32_t indexCount = 0;  // Number of indices for this material
-    bool ownsResources = true; // True if this material owns its texture resources (should destroy them)
 };
 
 /**

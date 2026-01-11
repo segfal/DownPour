@@ -18,18 +18,10 @@ add_executable(${PROJECT_NAME}
     main.cpp
     src/DownPour.cpp
     src/renderer/Camera.cpp
-    src/renderer/Mesh.cpp
-    src/renderer/Scene.cpp
-    src/renderer/Texture.cpp
-    src/renderer/DescriptorAllocator.cpp
-    src/renderer/Shader.cpp
-    src/renderer/PipelineBuilder.cpp
-    src/renderer/Material.cpp
-    src/renderer/FrameResources.cpp
-    src/renderer/Renderer.cpp
     src/renderer/Vertex.cpp
     src/renderer/Model.cpp
     src/simulation/WeatherSystem.cpp
+    src/simulation/WindshieldSurface.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 

@@ -7,7 +7,6 @@
 #include <stdexcept>
 #include <iostream>
 #include <cstring>
-#include <map>
 
 namespace DownPour {
 
@@ -40,9 +39,6 @@ void Model::loadFromFile(const std::string& filepath,
     }
 
     std::cout << "Successfully loaded GLTF: " << filepath << std::endl;
-
-    // Track loaded texture indices to avoid duplicates
-    std::map<int, size_t> textureIndexToMaterial;
 
     // Process each mesh in the model
     for (const auto& mesh : model.meshes) {
@@ -133,50 +129,26 @@ void Model::loadFromFile(const std::string& filepath,
                 const tinygltf::Material& gltfMaterial = model.materials[primitive.material];
                 if (gltfMaterial.pbrMetallicRoughness.baseColorTexture.index >= 0) {
                     int textureIndex = gltfMaterial.pbrMetallicRoughness.baseColorTexture.index;
+                    const tinygltf::Texture& texture = model.textures[textureIndex];
+                    const tinygltf::Image& image = model.images[texture.source];
 
-                    // Check if we already loaded this texture image
-                    size_t materialIndex;
-                    if (textureIndexToMaterial.find(textureIndex) != textureIndexToMaterial.end()) {
-                        // Reuse existing material's texture resources
-                        materialIndex = textureIndexToMaterial[textureIndex];
-                        const Material& existingMat = materials[materialIndex];
-
-                        // Create new material entry that shares texture but has its own index range
+                    // Validate image data
+                    if (!image.image.empty() && image.width > 0 && image.height > 0) {
                         Material newMaterial;
                         newMaterial.indexStart = primitiveIndexStart;
                         newMaterial.indexCount = primitiveIndexCount;
-                        newMaterial.textureImage = existingMat.textureImage;
-                        newMaterial.textureImageMemory = existingMat.textureImageMemory;
-                        newMaterial.textureImageView = existingMat.textureImageView;
-                        newMaterial.textureSampler = existingMat.textureSampler;
-                        newMaterial.ownsResources = false;  // Don't destroy shared resources
+
+                        // Create texture from image data
+                        createTextureImage(device, physicalDevice, commandPool, graphicsQueue,
+                                         image.image.data(), image.width, image.height, image.component,
+                                         newMaterial);
+                        createTextureImageView(device, newMaterial);
+                        createTextureSampler(device, newMaterial);
+
+                        std::cout << "Loaded texture: " << image.width << "x" << image.height
+                                 << " (" << image.component << " components)" << std::endl;
 
                         materials.push_back(newMaterial);
-                    } else {
-                        // Create new material with new texture
-                        const tinygltf::Texture& texture = model.textures[textureIndex];
-                        const tinygltf::Image& image = model.images[texture.source];
-
-                        // Validate image data
-                        if (!image.image.empty() && image.width > 0 && image.height > 0) {
-                            Material newMaterial;
-                            newMaterial.indexStart = primitiveIndexStart;
-                            newMaterial.indexCount = primitiveIndexCount;
-
-                            // Create texture from image data
-                            createTextureImage(device, physicalDevice, commandPool, graphicsQueue,
-                                             image.image.data(), image.width, image.height, image.component,
-                                             newMaterial);
-                            createTextureImageView(device, newMaterial);
-                            createTextureSampler(device, newMaterial);
-
-                            std::cout << "Loaded texture: " << image.width << "x" << image.height
-                                     << " (" << image.component << " components)" << std::endl;
-
-                            materialIndex = materials.size();
-                            materials.push_back(newMaterial);
-                            textureIndexToMaterial[textureIndex] = materialIndex;
-                        }
                     }
                 } else {
                     // Material has no texture - skip for now
@@ -597,25 +569,23 @@ void Model::copyBufferToImage(VkDevice device, VkCommandPool commandPool, VkQueu
 }
 
 void Model::cleanup(VkDevice device) {
-    // Clean up all materials (only destroy resources if material owns them)
+    // Clean up all materials
     for (auto& material : materials) {
-        if (material.ownsResources) {
-            if (material.textureSampler != VK_NULL_HANDLE) {
-                vkDestroySampler(device, material.textureSampler, nullptr);
-                material.textureSampler = VK_NULL_HANDLE;
-            }
-            if (material.textureImageView != VK_NULL_HANDLE) {
-                vkDestroyImageView(device, material.textureImageView, nullptr);
-                material.textureImageView = VK_NULL_HANDLE;
-            }
-            if (material.textureImage != VK_NULL_HANDLE) {
-                vkDestroyImage(device, material.textureImage, nullptr);
-                material.textureImage = VK_NULL_HANDLE;
-            }
-            if (material.textureImageMemory != VK_NULL_HANDLE) {
-                vkFreeMemory(device, material.textureImageMemory, nullptr);
-                material.textureImageMemory = VK_NULL_HANDLE;
-            }
+        if (material.textureSampler != VK_NULL_HANDLE) {
+            vkDestroySampler(device, material.textureSampler, nullptr);
+            material.textureSampler = VK_NULL_HANDLE;
+        }
+        if (material.textureImageView != VK_NULL_HANDLE) {
+            vkDestroyImageView(device, material.textureImageView, nullptr);
+            material.textureImageView = VK_NULL_HANDLE;
+        }
+        if (material.textureImage != VK_NULL_HANDLE) {
+            vkDestroyImage(device, material.textureImage, nullptr);
+            material.textureImage = VK_NULL_HANDLE;
+        }
+        if (material.textureImageMemory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, material.textureImageMemory, nullptr);
+            material.textureImageMemory = VK_NULL_HANDLE;
         }
     }
     materials.clear();
