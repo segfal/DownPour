@@ -132,8 +132,10 @@ void WindshieldSurface::createWetnessMap(VkDevice device, VkPhysicalDevice physi
         throw std::runtime_error("Failed to create wetness map image view");
     }
     
-    // Initialize with zero wetness (dry windshield)
-    // TODO: Transition layout and clear image
+    // TODO: Initialize with zero wetness (dry windshield)
+    // This requires transitioning the image layout from UNDEFINED to TRANSFER_DST_OPTIMAL,
+    // clearing the image, then transitioning to SHADER_READ_ONLY_OPTIMAL.
+    // Implementation deferred until build environment is available for testing.
     (void)commandPool;
     (void)graphicsQueue;
 }
@@ -194,8 +196,10 @@ void WindshieldSurface::createFlowMap(VkDevice device, VkPhysicalDevice physical
         throw std::runtime_error("Failed to create flow map image view");
     }
     
-    // Initialize with downward flow (gravity)
-    // TODO: Transition layout and initialize image
+    // TODO: Initialize with downward flow (gravity)
+    // This requires transitioning the image layout from UNDEFINED to TRANSFER_DST_OPTIMAL,
+    // filling with flow data, then transitioning to SHADER_READ_ONLY_OPTIMAL.
+    // Implementation deferred until build environment is available for testing.
     (void)commandPool;
     (void)graphicsQueue;
 }

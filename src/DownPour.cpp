@@ -1760,5 +1760,3 @@ void Application::renderWindshield(VkCommandBuffer cmd, uint32_t frameIndex) {
 }
 
 } // namespace DownPour
-
-} // namespace DownPour

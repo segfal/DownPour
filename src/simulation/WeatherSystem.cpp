@@ -1,11 +1,23 @@
 // SPDX-License-Identifier: MIT
 #include "simulation/WeatherSystem.h"
 #include <iostream>
-#include <cstdlib>
 #include <algorithm>
+#include <random>
 
 namespace DownPour {
 namespace Simulation {
+
+// Constants for raindrop physics
+constexpr float RAINDROP_MIN_SIZE = 0.1f;
+constexpr float RAINDROP_MAX_SIZE = 0.2f;
+constexpr float SPAWN_RADIUS = 20.0f;
+constexpr float SPAWN_HEIGHT = 30.0f;
+
+// Random number generator
+static std::random_device rd;
+static std::mt19937 gen(rd());
+static std::uniform_real_distribution<float> distPos(-SPAWN_RADIUS, SPAWN_RADIUS);
+static std::uniform_real_distribution<float> distSize(RAINDROP_MIN_SIZE, RAINDROP_MAX_SIZE);
 
 WeatherSystem::WeatherSystem() 
     : currentState(WeatherState::Sunny) {
@@ -28,15 +40,15 @@ void WeatherSystem::spawnRaindrop() {
     if (raindrops.size() >= MAX_RAINDROPS) return;
     
     Raindrop drop;
-    // Spawn in a volume around camera (20m radius, 30m above)
+    // Spawn in a volume around camera
     drop.position = glm::vec3(
-        static_cast<float>(rand() % 40 - 20),  // -20 to +20m
-        30.0f,                                  // Start 30m up
-        static_cast<float>(rand() % 40 - 20)   // -20 to +20m
+        distPos(gen),       // -20 to +20m
+        SPAWN_HEIGHT,       // Start 30m up
+        distPos(gen)        // -20 to +20m
     );
     drop.velocity = glm::vec3(0.0f, -9.8f, 0.0f);  // Gravity
     drop.lifetime = 0.0f;
-    drop.size = 0.1f + static_cast<float>(rand() % 100) / 1000.0f;  // 0.1-0.2m
+    drop.size = distSize(gen);
     drop.active = true;
     
     raindrops.push_back(drop);
