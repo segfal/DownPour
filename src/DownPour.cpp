@@ -93,12 +93,12 @@ void Application::initVulkan() {
     camera.setFarPlane(10000.0f);
     lastFrameTime = glfwGetTime();
 
-    // Set initial camera view based on current mode
-    updateCamera();
+    // Set initial camera to cockpit view
+    updateCameraForCockpit();
 
-    std::cout << "\n=== CAMERA CONTROLS ===" << std::endl;
-    std::cout << "Press 'C' to toggle between COCKPIT and EXTERNAL camera views" << std::endl;
-    std::cout << "Currently in: " << (cameraMode == CameraMode::External ? "EXTERNAL" : "COCKPIT") << " view" << std::endl;
+    std::cout << "\n=== CONTROLS ===" << std::endl;
+    std::cout << "Press 'R' to toggle RAIN weather effects" << std::endl;
+    std::cout << "Camera: COCKPIT view (mouse to look around)" << std::endl;
     std::cout << "========================\n" << std::endl;
 }
 
@@ -1043,24 +1043,21 @@ void Application::mainLoop() {
             }
         }
 
-        // Toggle camera mode with C key
-        if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
-            if (cameraMode == CameraMode::Cockpit) {
-                cameraMode = CameraMode::External;
-                std::cout << "Switched to EXTERNAL camera view" << std::endl;
-            } else {
-                cameraMode = CameraMode::Cockpit;
-                std::cout << "Switched to COCKPIT camera view" << std::endl;
-            }
+        // Toggle weather with R key
+        if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
+            weatherSystem.toggleWeather();
             // Small delay to prevent multiple toggles
-            while (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
+            while (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
                 glfwPollEvents();
             }
         }
 
         // Update car physics and camera
         updateCarPhysics(deltaTime);
-        updateCamera();
+        updateCameraForCockpit();
+        
+        // Update weather system
+        weatherSystem.update(deltaTime);
 
         glfwPollEvents();
         drawFrame();
@@ -1724,51 +1721,15 @@ VkFormat Application::findSupportedFormat(const std::vector<VkFormat>& candidate
   }
 
   void Application::updateCameraForCockpit() {
-      // Use the calculated cockpit offset from model bounds
-      // This offset was computed in loadCarModel() based on actual car dimensions
-
+      // Simplified cockpit camera with hard-coded offset
+      // The offset is defined in the header as a reasonable default
+      
       // Rotate offset by car rotation
       glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
       glm::vec3 rotatedOffset = glm::vec3(rotationMatrix * glm::vec4(cockpitOffset, 0.0f));
 
       // Update camera position relative to car (don't recreate camera to preserve mouse look)
       camera.setPosition(carPosition + rotatedOffset);
-  }
-
-  void Application::updateCameraForExternal() {
-      // External chase camera - positioned behind and above the car
-      const float cameraDistance = 8.0f;  // Distance behind car
-      const float cameraHeight = 3.0f;    // Height above car
-
-      // Calculate camera offset (behind the car)
-      glm::vec3 externalOffset = glm::vec3(0.0f, cameraHeight, -cameraDistance);
-
-      // Rotate offset by car rotation so camera follows car orientation
-      glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
-      glm::vec3 rotatedOffset = glm::vec3(rotationMatrix * glm::vec4(externalOffset, 0.0f));
-
-      // Set camera position behind and above the car
-      glm::vec3 cameraPos = carPosition + rotatedOffset;
-      camera.setPosition(cameraPos);
-
-      // Make camera look at the car (slightly above center)
-      glm::vec3 lookAtTarget = carPosition + glm::vec3(0.0f, 1.0f, 0.0f);
-      glm::vec3 direction = glm::normalize(lookAtTarget - cameraPos);
-
-      // Calculate yaw and pitch from direction vector
-      float yaw = glm::degrees(atan2(direction.x, direction.z));
-      float pitch = glm::degrees(asin(-direction.y));
-
-      camera.setYaw(yaw);
-      camera.setPitch(pitch);
-  }
-
-  void Application::updateCamera() {
-      if (cameraMode == CameraMode::Cockpit) {
-          updateCameraForCockpit();
-      } else {
-          updateCameraForExternal();
-      }
   }
 
 
