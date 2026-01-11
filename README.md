@@ -1,42 +1,82 @@
-# DownPour - Rain Simulator
+# DownPour - Driving Simulator with Realistic Rain
 
-A Vulkan-based rain simulation application built with C++17.
+A Vulkan-based driving simulator focused on realistic rain and windshield interaction, built with C++17.
+
+## Core Features
+
+- **Cockpit View Driving**: First-person perspective from inside the car
+- **Weather System**: Toggle between sunny and rainy conditions (press 'R')
+- **Rain Simulation**: Foundation for realistic rain particles and windshield effects (in development)
+- **Vulkan Rendering**: High-performance graphics using modern Vulkan API
 
 ## Project Structure
 
 ```
 DownPour/
-├── main.cpp                      # Application entry point
+├── main.cpp                        # Application entry point
 ├── src/
-│   ├── DownPour.h               # Main application class header
-│   ├── DownPour.cpp             # Main application class implementation
+│   ├── DownPour.h/cpp             # Main application (window, input, main loop)
+│   ├── renderer/                   # Rendering components
+│   │   ├── Camera.h/cpp           # Camera system (cockpit view)
+│   │   ├── Model.h/cpp            # 3D model loading (glTF)
+│   │   ├── Vertex.h/cpp           # Vertex data structures
+│   │   ├── Renderer.h/cpp         # Vulkan renderer (placeholder for refactor)
+│   │   └── Scene.h/cpp            # Scene management (placeholder for refactor)
+│   ├── simulation/                 # Simulation systems
+│   │   └── WeatherSystem.h/cpp    # Weather state and rain control
 │   └── vulkan/
-│       └── VulkanTypes.h        # Vulkan-specific type definitions
-├── headers/                      # Third-party dependencies (git submodules)
-│   ├── glfw/                    # GLFW library
-│   ├── glm/                     # GLM math library
-│   └── glad/                    # Glad OpenGL loader
-└── CMakeLists.txt               # CMake build configuration
+│       └── VulkanTypes.h          # Vulkan-specific type definitions
+├── shaders/                        # GLSL shaders
+│   ├── basic.*                    # Basic rendering
+│   ├── car.*                      # Car model rendering
+│   ├── world.*                    # Road/environment rendering
+│   ├── skybox.*                   # Sky rendering
+│   ├── rain_particles.*           # Rain droplets (placeholder)
+│   └── windshield_rain.frag       # Windshield water effects (placeholder)
+├── assets/                         # 3D models, textures
+├── headers/                        # Third-party dependencies (git submodules)
+│   ├── glfw/                      # Window management
+│   ├── glm/                       # Math library
+│   └── tinygltf/                  # glTF model loader
+└── tools/
+    ├── archive/                    # Archived development tools
+    └── skybox_colors.py           # Skybox utility
+
 ```
 
 ## Code Organization
 
-The codebase is organized into modular components for better readability and maintainability:
+The codebase follows a clear separation of concerns:
 
-### Main Application (`src/DownPour.h` and `src/DownPour.cpp`)
-- **Application class**: Manages the entire application lifecycle
-  - Window creation and management (GLFW)
-  - Vulkan initialization
+### Application Layer (`src/DownPour.h/cpp`)
+- **Application class**: High-level coordination
+  - GLFW window creation and management
   - Main rendering loop
-  - Resource cleanup
+  - Input handling (keyboard, mouse)
+  - Integration of Renderer, Scene, and WeatherSystem
 
-### Vulkan Types (`src/vulkan/VulkanTypes.h`)
-- **QueueFamilyIndices**: Helper struct for managing Vulkan queue families
-- Centralizes Vulkan-specific type definitions for reusability
+### Rendering (`src/renderer/`)
+- **Camera**: Cockpit camera with mouse look controls
+- **Model**: 3D model loading and management (glTF format)
+- **Vertex**: Vertex data structures and layouts
+- **Renderer/Scene**: (Placeholders for future Vulkan refactoring)
 
-### Entry Point (`main.cpp`)
-- Minimal entry point that creates and runs the application
-- Exception handling for graceful error reporting
+### Simulation (`src/simulation/`)
+- **WeatherSystem**: Weather state management
+  - Toggle between Sunny/Rainy states
+  - Integration points for rain particles and windshield effects
+  - Future: Rain physics, droplet simulation
+
+### Vulkan Core (`src/vulkan/`)
+- **VulkanTypes**: Common Vulkan type definitions and helpers
+  - Queue family management
+  - Swapchain support queries
+
+## Controls
+
+- **Mouse**: Look around (cockpit view)
+- **ESC**: Toggle cursor capture
+- **R**: Toggle weather (Sunny ↔ Rainy)
 
 ## Building the Project
 
@@ -70,37 +110,50 @@ cmake --build .
 ./DownPour
 ```
 
+### Quick Build Script
+
+```bash
+./run.sh  # Builds and runs the application
+```
+
 ## Platform Support
 
 Currently optimized for macOS (M3 Mac) with Metal backend support via MoltenVK.
+Linux and Windows support planned.
 
-## Code Style Guidelines
+## Architecture Goals
 
-This project follows the [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html). For detailed coding standards, see [CODING_STANDARDS.md](CODING_STANDARDS.md).
+This refactor prioritizes:
 
-**Quick Reference:**
-- **Namespaces**: All application code is within the `DownPour` namespace
+1. **Readability**: Each class has a single, focused responsibility
+2. **Modularity**: Clear separation between rendering, simulation, and application logic
+3. **Rain-focused**: WeatherSystem provides clear integration points for rain effects
+4. **Maintainability**: New features have obvious locations in the codebase
+
+## Next Steps
+
+- Implement rain particle rendering using `rain_particles.*` shaders
+- Add windshield droplet effects using `windshield_rain.frag`
+- Expand WeatherSystem with particle physics
+- Add wiper blade simulation
+- Implement droplet coalescence and sliding effects
+
+## Code Style
+
+This project follows simplified C++ best practices:
+
+- **Namespaces**: `DownPour` (main), `DownPour::Simulation`, `DownPour::Renderer`
 - **Naming**: PascalCase for classes, camelCase for functions/variables
-- **Documentation**: Doxygen-style comments for all public APIs
+- **Documentation**: Doxygen-style comments for public APIs
 - **Formatting**: 4 spaces indentation, K&R brace style
-- **Modularity**: Each component has a single, well-defined responsibility
-- **Modern C++**: Use C++17 features (auto, nullptr, constexpr, etc.)
+- **Modern C++**: C++17 features (auto, nullptr, constexpr, etc.)
 
-## Future Enhancements
-
-As the project grows, consider:
-- Separating window management into its own module
-- Creating a dedicated Vulkan renderer class
-- Adding shader management utilities
-- Implementing resource management systems
+For detailed guidelines, see [CODING_STANDARDS.md](CODING_STANDARDS.md).
 
 ## Contributing
 
-Contributions are welcome! Please ensure your code follows the [coding standards](CODING_STANDARDS.md) before submitting a pull request.
-
-### Before Submitting
-- Read and follow [CODING_STANDARDS.md](CODING_STANDARDS.md)
-- Ensure code compiles without warnings
-- Add documentation for public APIs
-- Test your changes thoroughly
-- Run code formatting and linting tools
+Contributions are welcome! Please ensure your code:
+- Compiles without warnings
+- Follows the project's code style
+- Includes documentation for public APIs
+- Is tested thoroughly

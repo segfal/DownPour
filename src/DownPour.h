@@ -7,6 +7,7 @@
 #include "renderer/Camera.h"
 #include "renderer/Vertex.h"
 #include "renderer/Model.h"
+#include "simulation/WeatherSystem.h"
 
 #include <cstdint>
 #include <vector>
@@ -60,19 +61,18 @@ private:
     bool firstMouse = true;
     bool cursorCaptured = true;
 
-    // Camera mode
-    enum class CameraMode {
-        Cockpit,
-        External
-    };
-    CameraMode cameraMode = CameraMode::External;  // Start in external view to see the car
-
     // Car driving state
     glm::vec3 carPosition = glm::vec3(0.0f, 0.0f, 0.0f);
     float carVelocity = 0.0f;
     float carRotation = 0.0f;
     float carScaleFactor = 1.0f;  // Calculated scale to achieve realistic size
-    glm::vec3 cockpitOffset = glm::vec3(0.0f, 0.0f, 0.0f);  // Calculated from model bounds
+    
+    // Simplified cockpit camera - hard-coded offset for initial implementation
+    // Can be adjusted based on different car models later
+    glm::vec3 cockpitOffset = glm::vec3(0.0f, 1.2f, 0.5f);  // Reasonable cockpit position
+    
+    // Weather simulation system
+    Simulation::WeatherSystem weatherSystem;
 
     // GLFW and Vulkan handles
     GLFWwindow* window = nullptr;
@@ -207,8 +207,6 @@ private:
     // Car simulation methods
     void updateCarPhysics(float deltaTime);
     void updateCameraForCockpit();
-    void updateCameraForExternal();
-    void updateCamera();
 
 };
 
