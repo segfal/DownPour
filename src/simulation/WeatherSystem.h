@@ -1,8 +1,23 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <glm/glm.hpp>
+#include <vulkan/vulkan.h>
+#include <vector>
+
 namespace DownPour {
 namespace Simulation {
+
+/**
+ * @brief Raindrop particle structure
+ */
+struct Raindrop {
+    glm::vec3 position;      // Current position
+    glm::vec3 velocity;      // Fall velocity
+    float lifetime;          // Time alive
+    float size;              // Droplet size
+    bool active;             // Is this drop alive?
+};
 
 /**
  * @brief Weather system managing rain simulation and atmospheric conditions
@@ -53,18 +68,47 @@ public:
     /**
      * @brief Update weather system state
      * @param deltaTime Time since last update in seconds
-     * 
-     * TODO: Will be expanded to update particle systems, wind effects, etc.
      */
     void update(float deltaTime);
+
+    /**
+     * @brief Render rain particles
+     * @param cmd Command buffer for recording render commands
+     * @param layout Pipeline layout
+     * @param frameIndex Current frame index
+     */
+    void render(VkCommandBuffer cmd, VkPipelineLayout layout, uint32_t frameIndex);
+
+    /**
+     * @brief Get active raindrops
+     * @return Vector of active raindrops
+     */
+    const std::vector<Raindrop>& getActiveDrops() const { return raindrops; }
 
 private:
     WeatherState currentState;
     
-    // TODO: Add rain particle system
-    // TODO: Add windshield droplet management
-    // TODO: Add wind simulation
-    // TODO: Add weather transition effects
+    // Rain particle system
+    std::vector<Raindrop> raindrops;
+    static constexpr size_t MAX_RAINDROPS = 5000;
+    float spawnTimer = 0.0f;
+    float spawnRate = 0.01f;  // Seconds between spawns
+    
+    /**
+     * @brief Spawn a new raindrop
+     */
+    void spawnRaindrop();
+    
+    /**
+     * @brief Update all raindrops
+     * @param deltaTime Time since last update
+     */
+    void updateRaindrops(float deltaTime);
+    
+    /**
+     * @brief Remove inactive raindrops
+     */
+    void cleanupInactiveDrops();
 };
 
 } // namespace Simulation
