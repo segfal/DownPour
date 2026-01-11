@@ -21,6 +21,7 @@ add_executable(${PROJECT_NAME}
     src/renderer/Vertex.cpp
     src/renderer/Model.cpp
     src/simulation/WeatherSystem.cpp
+    src/simulation/WindshieldSurface.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
