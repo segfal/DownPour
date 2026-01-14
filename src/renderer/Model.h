@@ -13,12 +13,36 @@ namespace DownPour {
  * @brief Material structure holding texture resources and index range
  */
 struct Material {
+    // Base color texture
     VkImage textureImage = VK_NULL_HANDLE;
     VkDeviceMemory textureImageMemory = VK_NULL_HANDLE;
     VkImageView textureImageView = VK_NULL_HANDLE;
     VkSampler textureSampler = VK_NULL_HANDLE;
+
+    // PBR textures (optional)
+    VkImage normalMap = VK_NULL_HANDLE;
+    VkDeviceMemory normalMapMemory = VK_NULL_HANDLE;
+    VkImageView normalMapView = VK_NULL_HANDLE;
+    VkSampler normalMapSampler = VK_NULL_HANDLE;
+
+    VkImage metallicRoughnessMap = VK_NULL_HANDLE;
+    VkDeviceMemory metallicRoughnessMemory = VK_NULL_HANDLE;
+    VkImageView metallicRoughnessView = VK_NULL_HANDLE;
+    VkSampler metallicRoughnessSampler = VK_NULL_HANDLE;
+
+    VkImage emissiveMap = VK_NULL_HANDLE;
+    VkDeviceMemory emissiveMapMemory = VK_NULL_HANDLE;
+    VkImageView emissiveMapView = VK_NULL_HANDLE;
+    VkSampler emissiveMapSampler = VK_NULL_HANDLE;
+
+    // Index range for this material
     uint32_t indexStart = 0;  // Starting index in the index buffer
     uint32_t indexCount = 0;  // Number of indices for this material
+
+    // Flags to track which textures are present
+    bool hasNormalMap = false;
+    bool hasMetallicRoughness = false;
+    bool hasEmissive = false;
 };
 
 /**
@@ -155,6 +179,20 @@ private:
                               VkImageLayout oldLayout, VkImageLayout newLayout);
     void copyBufferToImage(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue,
                           VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+
+    // External texture loading
+    void loadExternalTexture(const std::string& filepath,
+                            VkDevice device,
+                            VkPhysicalDevice physicalDevice,
+                            VkCommandPool commandPool,
+                            VkQueue graphicsQueue,
+                            VkImage& outImage,
+                            VkDeviceMemory& outMemory,
+                            VkImageView& outView,
+                            VkSampler& outSampler);
+
+    std::string resolveTexturePath(const std::string& modelPath,
+                                   const std::string& textureUri);
 };
 
 } // namespace DownPour
