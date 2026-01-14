@@ -75,7 +75,7 @@ void Application::initVulkan() {
     createDescriptorPool();
     createDescriptorSets();
     createCommandBuffers();
-    createRoadBuffers();
+    loadRoadModel();
 
     // Load and setup car model
     loadCarModel();
@@ -86,11 +86,15 @@ void Application::initVulkan() {
     windshield.initialize(device, physicalDevice, commandPool, graphicsQueue);
     createWindshieldPipeline();
 
+    // Initialize debug visualization
+    createDebugPipeline();
+    createDebugMarkers();
+
     createSyncObjects();
 
     float aspect = static_cast<float>(swapchainExtent.width) / static_cast<float>(swapchainExtent.height);
     // Initialize camera (will be updated by updateCamera based on camera mode)
-    camera = Camera({0.0f, 5.0f, -10.0f}, aspect);
+    camera = Camera({0.0f, 0.0f, 0.0f}, aspect);
     // Set FOV (wider for cockpit, normal for external)
     camera.setFOV(75.0f);
     // Set far plane to 10km so we can see the entire 6.5km road
@@ -103,11 +107,31 @@ void Application::initVulkan() {
     std::cout << "\n=== CONTROLS ===" << std::endl;
     std::cout << "Press 'R' to toggle RAIN weather effects" << std::endl;
     std::cout << "Press 'I' to activate windshield WIPERS" << std::endl;
-    std::cout << "Camera: COCKPIT view (mouse to look around)" << std::endl;
+    std::cout << "Press 'V' to toggle DEBUG VISUALIZATION" << std::endl;
+    std::cout << "\nCockpit Position Adjustment (Numpad):" << std::endl;
+    std::cout << "  Numpad 4/6: Move LEFT/RIGHT (X axis)" << std::endl;
+    std::cout << "  Numpad 8/2: Move FORWARD/BACK (Y axis in model space)" << std::endl;
+    std::cout << "  Numpad +/-: Move UP/DOWN (Z axis in model space)" << std::endl;
+    std::cout << "\nCamera: COCKPIT view (mouse to look around)" << std::endl;
+    std::cout << "Drive: Arrow keys or WASD" << std::endl;
     std::cout << "========================\n" << std::endl;
 }
 
 void Application::cleanup() {
+    // Clean up debug visualization resources
+    if (debugVertexBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, debugVertexBuffer, nullptr);
+    }
+    if (debugVertexBufferMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, debugVertexBufferMemory, nullptr);
+    }
+    if (debugPipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device, debugPipeline, nullptr);
+    }
+    if (debugPipelineLayout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device, debugPipelineLayout, nullptr);
+    }
+
     // Clean up windshield resources
     windshield.cleanup(device);
     if (windshieldPipeline != VK_NULL_HANDLE) {
@@ -174,19 +198,8 @@ void Application::cleanup() {
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
     }
 
-    // Clean up road resources BEFORE destroying device
-    if (roadIndexBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, roadIndexBuffer, nullptr);
-    }
-    if (roadIndexBufferMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, roadIndexBufferMemory, nullptr);
-    }
-    if (roadVertexBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, roadVertexBuffer, nullptr);
-    }
-    if (roadVertexBufferMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, roadVertexBufferMemory, nullptr);
-    }
+    // Clean up road model BEFORE destroying device
+    roadModel.cleanup(device);
     if (worldPipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, worldPipeline, nullptr);
     }
@@ -893,16 +906,55 @@ void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, 
                            &descriptorSets[frameIndex], 0, nullptr);
     vkCmdDraw(cmd, 36, 1, 0, 0);
 
-    // 2. Draw road
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                           worldPipelineLayout, 0, 1,
-                           &descriptorSets[frameIndex], 0, nullptr);
-    VkBuffer vertexBuffers[] = {roadVertexBuffer};
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-    vkCmdBindIndexBuffer(cmd, roadIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmd, roadIndexCount, 1, 0, 0, 0);
+    // 2. Draw road (model-based)
+    if (roadModel.getIndexCount() > 0) {
+        VkBuffer roadVertexBuffers[] = {roadModel.getVertexBuffer()};
+        VkDeviceSize roadOffsets[] = {0};
+
+        if (roadModel.hasTexture()) {
+            // Road has textures - use car pipeline approach
+            const auto& roadMaterials = roadModel.getMaterials();
+
+            if (!roadMaterials.empty()) {
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipeline);
+
+                // Push road model matrix
+                glm::mat4 roadMatrix = roadModel.getModelMatrix();
+                vkCmdPushConstants(cmd, carPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
+                                  0, sizeof(glm::mat4), &roadMatrix);
+
+                // Bind vertex and index buffers
+                vkCmdBindVertexBuffers(cmd, 0, 1, roadVertexBuffers, roadOffsets);
+                vkCmdBindIndexBuffer(cmd, roadModel.getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+                // Render each material
+                for (size_t i = 0; i < roadMaterials.size(); i++) {
+                    const auto& material = roadMaterials[i];
+
+                    // Bind base color texture (descriptor set 1)
+                    VkDescriptorSet texDescriptor = VK_NULL_HANDLE;
+                    VkDescriptorImageInfo imageInfo{};
+                    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    imageInfo.imageView = material.textureImageView;
+                    imageInfo.sampler = material.textureSampler;
+
+                    // For simplicity, reuse car descriptor pool
+                    // In production, you'd want separate descriptors for road
+                    // For now, just use the world pipeline for textured road
+                    vkCmdDrawIndexed(cmd, material.indexCount, 1, material.indexStart, 0, 0);
+                }
+            }
+        } else {
+            // Road has no textures - use simple world pipeline
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                   worldPipelineLayout, 0, 1,
+                                   &descriptorSets[frameIndex], 0, nullptr);
+            vkCmdBindVertexBuffers(cmd, 0, 1, roadVertexBuffers, roadOffsets);
+            vkCmdBindIndexBuffer(cmd, roadModel.getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdDrawIndexed(cmd, roadModel.getIndexCount(), 1, 0, 0, 0);
+        }
+    }
 
     // 3. Draw car (per-material rendering)
     if (carModel.getIndexCount() > 0 && carModel.hasTexture()) {
@@ -937,6 +989,11 @@ void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, 
                 vkCmdDrawIndexed(cmd, material.indexCount, 1, material.indexStart, 0, 0);
             }
         }
+    }
+
+    // 4. Draw debug markers (if enabled)
+    if (debugVisualizationEnabled && debugVertexCount > 0) {
+        renderDebugMarkers(cmd, frameIndex);
     }
 
     vkCmdEndRenderPass(cmd);
@@ -1084,6 +1141,63 @@ void Application::mainLoop() {
             windshield.setWiperActive(true);
         } else {
             windshield.setWiperActive(false);
+        }
+
+        // Toggle debug visualization with V key
+        if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS) {
+            debugVisualizationEnabled = !debugVisualizationEnabled;
+            std::cout << "Debug visualization: " << (debugVisualizationEnabled ? "ON" : "OFF") << std::endl;
+            // Small delay to prevent multiple toggles
+            while (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS) {
+                glfwPollEvents();
+            }
+        }
+
+        // Adjust cockpit offset with numpad keys (fine control)
+        const float adjustStep = 0.1f;  // 10cm increments
+        bool offsetChanged = false;
+
+        // X axis (left/right) - Numpad 4/6
+        if (glfwGetKey(window, GLFW_KEY_KP_4) == GLFW_PRESS) {
+            cockpitOffset.x -= adjustStep;
+            offsetChanged = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_KP_6) == GLFW_PRESS) {
+            cockpitOffset.x += adjustStep;
+            offsetChanged = true;
+        }
+
+        // Y axis (forward/back in model space) - Numpad 8/2
+        if (glfwGetKey(window, GLFW_KEY_KP_8) == GLFW_PRESS) {
+            cockpitOffset.y += adjustStep;
+            offsetChanged = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_KP_2) == GLFW_PRESS) {
+            cockpitOffset.y -= adjustStep;
+            offsetChanged = true;
+        }
+
+        // Z axis (up/down in model space) - Numpad +/-
+        if (glfwGetKey(window, GLFW_KEY_KP_ADD) == GLFW_PRESS) {
+            cockpitOffset.z += adjustStep;
+            offsetChanged = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_KP_SUBTRACT) == GLFW_PRESS) {
+            cockpitOffset.z -= adjustStep;
+            offsetChanged = true;
+        }
+
+        // Print updated offset when changed
+        if (offsetChanged) {
+            std::cout << "Cockpit offset: ("
+                      << cockpitOffset.x << ", "
+                      << cockpitOffset.y << ", "
+                      << cockpitOffset.z << ")" << std::endl;
+        }
+
+        // Update debug markers every frame (car position changes)
+        if (debugVisualizationEnabled) {
+            updateDebugMarkers();
         }
 
         glfwPollEvents();
@@ -1238,77 +1352,7 @@ VkFormat Application::findSupportedFormat(const std::vector<VkFormat>& candidate
         vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
     }
 
-    void Application::createRoadBuffers() {
-      // Define large road quad for 2-mile radius driving area
-      // 2 miles = 3,219 meters, so we use 6,500m x 6,500m (diameter slightly over 2 miles radius)
-      const float roadSize = 6500.0f;  // meters (1 unit = 1 meter)
-      const float halfSize = roadSize / 2.0f;
 
-      // Texture coordinates for tiling (asphalt texture will repeat)
-      const float texRepeat = roadSize / 10.0f;  // Repeat texture every 10 meters
-
-      std::vector<Vertex> vertices = {
-          {{-halfSize, 0.0f, -halfSize}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-          {{ halfSize, 0.0f, -halfSize}, {0.0f, 1.0f, 0.0f}, {texRepeat, 0.0f}},
-          {{ halfSize, 0.0f,  halfSize}, {0.0f, 1.0f, 0.0f}, {texRepeat, texRepeat}},
-          {{-halfSize, 0.0f,  halfSize}, {0.0f, 1.0f, 0.0f}, {0.0f, texRepeat}}
-      };
-
-      std::cout << "\n=== ROAD DIMENSIONS ===" << std::endl;
-      std::cout << "Road size: " << roadSize << "m x " << roadSize << "m" << std::endl;
-      std::cout << "Radius from center: " << halfSize << " meters (" << (halfSize / 1609.34f) << " miles)" << std::endl;
-      std::cout << "=======================\n" << std::endl;
-
-      std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0};
-      roadIndexCount = static_cast<uint32_t>(indices.size());
-
-      // Create vertex buffer
-      VkDeviceSize vertexBufferSize = sizeof(vertices[0]) * vertices.size();
-
-      VkBuffer stagingBuffer;
-      VkDeviceMemory stagingBufferMemory;
-      createBuffer(vertexBufferSize,
-                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  stagingBuffer, stagingBufferMemory);
-
-      void* data;
-      vkMapMemory(device, stagingBufferMemory, 0, vertexBufferSize, 0, &data);
-      memcpy(data, vertices.data(), vertexBufferSize);
-      vkUnmapMemory(device, stagingBufferMemory);
-
-      createBuffer(vertexBufferSize,
-                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                  roadVertexBuffer, roadVertexBufferMemory);
-
-      copyBuffer(stagingBuffer, roadVertexBuffer, vertexBufferSize);
-
-      vkDestroyBuffer(device, stagingBuffer, nullptr);
-      vkFreeMemory(device, stagingBufferMemory, nullptr);
-
-      // Create index buffer
-      VkDeviceSize indexBufferSize = sizeof(indices[0]) * indices.size();
-
-      createBuffer(indexBufferSize,
-                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  stagingBuffer, stagingBufferMemory);
-
-      vkMapMemory(device, stagingBufferMemory, 0, indexBufferSize, 0, &data);
-      memcpy(data, indices.data(), indexBufferSize);
-      vkUnmapMemory(device, stagingBufferMemory);
-
-      createBuffer(indexBufferSize,
-                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                  roadIndexBuffer, roadIndexBufferMemory);
-
-      copyBuffer(stagingBuffer, roadIndexBuffer, indexBufferSize);
-
-      vkDestroyBuffer(device, stagingBuffer, nullptr);
-      vkFreeMemory(device, stagingBufferMemory, nullptr);
-  }
 
 
     void Application::createWorldPipeline() {
@@ -1440,7 +1484,7 @@ VkFormat Application::findSupportedFormat(const std::vector<VkFormat>& candidate
   }
 
   void Application::loadCarModel() {
-      carModel.loadFromFile("assets/models/scene.gltf", device, physicalDevice, commandPool, graphicsQueue);
+      carModel.loadFromFile("assets/models/bmw.glb", device, physicalDevice, commandPool, graphicsQueue);
 
       // Get UNSCALED model dimensions
       glm::vec3 dimensions = carModel.getDimensions();
@@ -1454,29 +1498,91 @@ VkFormat Application::findSupportedFormat(const std::vector<VkFormat>& candidate
       // Calculate scale factor based on length (Z dimension)
       carScaleFactor = targetLength / dimensions.z;
 
-      std::cout << "Target BMW M3 length: " << targetLength << " meters" << std::endl;
-      std::cout << "Calculated scale factor: " << carScaleFactor << "x" << std::endl;
-      std::cout << "Scaled dimensions will be: "
-                << dimensions.x * carScaleFactor << "m x "
-                << dimensions.y * carScaleFactor << "m x "
-                << dimensions.z * carScaleFactor << "m" << std::endl;
-      std::cout << "=============================\n" << std::endl;
 
-      // Apply calculated scale
-      glm::mat4 modelMatrix = glm::mat4(1.0f);
-      modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 0.0f, 0.0f));
-      modelMatrix = glm::scale(modelMatrix, glm::vec3(carScaleFactor, carScaleFactor, carScaleFactor));
-      carModel.setModelMatrix(modelMatrix);
+      // Print bounding box info for debugging
+      glm::vec3 minB = carModel.getMinBounds();
+      glm::vec3 maxB = carModel.getMaxBounds();
+     
+      // Calculate a better starting cockpit position
+      // Driver position is typically:
+      // - X: slightly left of center (but we'll start centered)
+      // - Y: about 60% forward from rear (in model space before rotation)
+      // - Z: about 80% of height (eye level)
 
-      // Note: cockpitOffset is hard-coded in the header (0.0, 1.2, 0.5)
-      // This provides a reasonable default cockpit view position
-      // Can be adjusted later based on specific car models if needed
-      std::cout << "=== COCKPIT POSITION ===" << std::endl;
-      std::cout << "Using hard-coded cockpit offset: ("
-                << cockpitOffset.x << ", "
-                << cockpitOffset.y << ", "
-                << cockpitOffset.z << ")" << std::endl;
-      std::cout << "========================\n" << std::endl;
+      glm::vec3 dims = carModel.getDimensions();
+      glm::vec3 min = carModel.getMinBounds();
+
+      // In model space (before 90° rotation):
+      // Y axis is what becomes "forward" in world space after rotation
+      // Z axis is what becomes "up" in world space after rotation
+
+      float suggestedX = 0.0f;  // Center
+      float suggestedY = min.y + dims.y * 0.4f;  // 40% from front (60% from back)
+      float suggestedZ = min.z + dims.z * 0.75f; // 75% of height for eye level
+
+      // Query and store car part meshes for animation
+      std::cout << "\n=== SEARCHING FOR CAR PARTS ===" << std::endl;
+
+      auto meshNames = carModel.getMeshNames();
+      std::cout << "Available meshes in car model: " << meshNames.size() << std::endl;
+      for (const auto& name : meshNames) {
+          std::cout << "  - " << name << std::endl;
+      }
+
+      // Search for steering wheel parts (try exact match, then with primitive suffix)
+      if (carModel.getMeshIndexRange("steering_wheel_front",
+                                     carParts.steeringWheelFrontStart,
+                                     carParts.steeringWheelFrontCount)) {
+          std::cout << "Found steering_wheel_front" << std::endl;
+          carParts.hasSteeringWheel = true;
+      } else if (carModel.getMeshIndexRange("steering_wheel_front_primitive0",
+                                           carParts.steeringWheelFrontStart,
+                                           carParts.steeringWheelFrontCount)) {
+          std::cout << "Found steering_wheel_front_primitive0" << std::endl;
+          carParts.hasSteeringWheel = true;
+      }
+
+      if (carModel.getMeshIndexRange("steering_wheel_back",
+                                     carParts.steeringWheelBackStart,
+                                     carParts.steeringWheelBackCount)) {
+          std::cout << "Found steering_wheel_back" << std::endl;
+          carParts.hasSteeringWheel = true;
+      } else if (carModel.getMeshIndexRange("steering_wheel_back_primitive0",
+                                           carParts.steeringWheelBackStart,
+                                           carParts.steeringWheelBackCount)) {
+          std::cout << "Found steering_wheel_back_primitive0" << std::endl;
+          carParts.hasSteeringWheel = true;
+      }
+
+      // Search for wipers
+      if (carModel.getMeshIndexRange("left_wiper", carParts.leftWiperStart, carParts.leftWiperCount)) {
+          std::cout << "Found left_wiper" << std::endl;
+          carParts.hasWipers = true;
+      }
+
+      if (carModel.getMeshIndexRange("right_wiper", carParts.rightWiperStart, carParts.rightWiperCount)) {
+          std::cout << "Found right_wiper" << std::endl;
+          carParts.hasWipers = true;
+      }
+
+      std::cout << "Steering wheel found: " << (carParts.hasSteeringWheel ? "YES" : "NO") << std::endl;
+      std::cout << "Wipers found: " << (carParts.hasWipers ? "YES" : "NO") << std::endl;
+      std::cout << "================================\n" << std::endl;
+  }
+
+  void Application::loadRoadModel() {
+      roadModel.loadFromFile("assets/models/road.glb", device, physicalDevice,
+                            commandPool, graphicsQueue);
+
+
+      // Position road at ground level (Y=0)
+      glm::mat4 roadTransform = glm::mat4(1.0f);
+      roadTransform = glm::translate(roadTransform, glm::vec3(0.0f, 0.0f, 0.0f));
+
+      // May need scaling depending on road.glb dimensions
+      // For now, assume road.glb is already at correct scale
+      roadModel.setModelMatrix(roadTransform);
+
   }
 
   void Application::createCarPipeline() {
@@ -1722,28 +1828,83 @@ VkFormat Application::findSupportedFormat(const std::vector<VkFormat>& candidate
       // Clamp velocity
       carVelocity = glm::clamp(carVelocity, -maxSpeed * 0.5f, maxSpeed);
 
-      // Update car position (move along Z axis, which is forward)
+      // Update car position (move along X axis, which is forward)
       carPosition.z += carVelocity * deltaTime;
 
       // Update car model matrix
       glm::mat4 modelMatrix = glm::mat4(1.0f);
       modelMatrix = glm::translate(modelMatrix, carPosition);
       modelMatrix = glm::rotate(modelMatrix, glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
+      // Apply 90° X-axis rotation to fix model orientation (was facing up)
+      modelMatrix = glm::rotate(modelMatrix, glm::radians(270.0f), glm::vec3(1.0f, 0.0f, 0.0f));
       // Apply calculated scale for realistic size
       modelMatrix = glm::scale(modelMatrix, glm::vec3(carScaleFactor, carScaleFactor, carScaleFactor));
       carModel.setModelMatrix(modelMatrix);
+
+      // Update steering wheel rotation based on A/D keys
+      if (carParts.hasSteeringWheel) {
+          const float maxSteeringAngle = 450.0f;  // degrees (1.25 full rotations)
+          const float steeringSpeed = 180.0f;     // degrees per second
+          const float returnSpeed = 360.0f;       // degrees per second
+
+          bool turningLeft = (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS ||
+                             glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS);
+          bool turningRight = (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS ||
+                              glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS);
+
+          if (turningLeft && !turningRight) {
+              steeringWheelRotation += steeringSpeed * deltaTime;
+              steeringWheelRotation = glm::min(steeringWheelRotation, maxSteeringAngle);
+          } else if (turningRight && !turningLeft) {
+              steeringWheelRotation -= steeringSpeed * deltaTime;
+              steeringWheelRotation = glm::max(steeringWheelRotation, -maxSteeringAngle);
+          } else {
+              // Return to center when no input
+              if (steeringWheelRotation > 0.0f) {
+                  steeringWheelRotation -= returnSpeed * deltaTime;
+                  if (steeringWheelRotation < 0.0f) steeringWheelRotation = 0.0f;
+              } else if (steeringWheelRotation < 0.0f) {
+                  steeringWheelRotation += returnSpeed * deltaTime;
+                  if (steeringWheelRotation > 0.0f) steeringWheelRotation = 0.0f;
+              }
+          }
+      }
   }
 
   void Application::updateCameraForCockpit() {
-      // Use hard-coded cockpit offset defined in header (0.0, 1.2, 0.5)
+      // Use hard-coded cockpit offset defined in header
       // This provides a reasonable default driver's eye position
-      
-      // Rotate offset by car rotation
-      glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
+
+      // Apply the same rotations to the cockpit offset as we do to the car model
+      glm::mat4 rotationMatrix = glm::mat4(1.0f);
+      // First rotate by car's Y-axis rotation (steering)
+      rotationMatrix = glm::rotate(rotationMatrix, glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
+      // Then apply the 90° X-axis rotation (model orientation fix)
+      rotationMatrix = glm::rotate(rotationMatrix, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+
       glm::vec3 rotatedOffset = glm::vec3(rotationMatrix * glm::vec4(cockpitOffset, 0.0f));
 
-      // Update camera position relative to car (don't recreate camera to preserve mouse look)
-      camera.setPosition(carPosition + rotatedOffset);
+      // Update camera position to be inside the car at cockpit location
+      glm::vec3 cockpitPosition = carPosition + rotatedOffset + glm::vec3(0.0f, 0.4f, -0.15f); // x is forward and backward, y is up and down, z is left and right
+      camera.setPosition(cockpitPosition);
+
+      // Debug: Print camera AND car position (only once at startup, not every frame)
+      static bool printedOnce = false;
+      if (!printedOnce) {
+          std::cout << "\n=== CAMERA & CAR DEBUG ===" << std::endl;
+          std::cout << "Car world position: (" << carPosition.x << ", " << carPosition.y << ", " << carPosition.z << ")" << std::endl;
+          std::cout << "Car rotation (Y-axis): " << carRotation << " degrees" << std::endl;
+          std::cout << "Cockpit offset (before rotation): (" << cockpitOffset.x << ", " << cockpitOffset.y << ", " << cockpitOffset.z << ")" << std::endl;
+          std::cout << "Rotated offset: (" << rotatedOffset.x << ", " << rotatedOffset.y << ", " << rotatedOffset.z << ")" << std::endl;
+          std::cout << "Final camera position: (" << cockpitPosition.x << ", " << cockpitPosition.y << ", " << cockpitPosition.z << ")" << std::endl;
+          std::cout << "Camera is " << (cockpitPosition.y >= 0 ? "ABOVE" : "BELOW") << " ground (Y=" << cockpitPosition.y << ")" << std::endl;
+          std::cout << "===========================\n" << std::endl;
+          printedOnce = true;
+      }
+
+      // Set camera to look forward (pitch = 0 is looking straight ahead)
+      // The 90° model rotation is already accounted for in the cockpit offset transformation
+      camera.setPitch(0.0f);  // Look straight forward
   }
 
 void Application::createWindshieldPipeline() {
@@ -1757,6 +1918,297 @@ void Application::renderWindshield(VkCommandBuffer cmd, uint32_t frameIndex) {
     // This will render a full-screen quad with the windshield effect
     (void)cmd;
     (void)frameIndex;
+}
+
+// ===== Debug Visualization Methods =====
+
+void Application::createDebugPipeline() {
+    // Load debug shaders
+    auto vertShaderCode = readFile("debug.vert.spv");
+    auto fragShaderCode = readFile("debug.frag.spv");
+
+    VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+    VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+
+    VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
+    vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertShaderStageInfo.module = vertShaderModule;
+    vertShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
+    fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragShaderStageInfo.module = fragShaderModule;
+    fragShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+
+    // Vertex input: position (vec3) + color (vec3)
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(float) * 6;  // 3 floats for position + 3 for color
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+    // Position
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].offset = 0;
+    // Color
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[1].offset = sizeof(float) * 3;
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;  // Draw lines
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(swapchainExtent.width);
+    viewport.height = static_cast<float>(swapchainExtent.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = swapchainExtent;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.pViewports = &viewport;
+    viewportState.scissorCount = 1;
+    viewportState.pScissors = &scissor;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 2.0f;  // Thick lines for visibility
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.sampleShadingEnable = VK_FALSE;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_FALSE;  // Don't write to depth buffer
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;  // Draw even if equal
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_TRUE;
+    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments = &colorBlendAttachment;
+
+    // Use the same descriptor set layout as other pipelines (camera UBO)
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+
+    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &debugPipelineLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create debug pipeline layout!");
+    }
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.layout = debugPipelineLayout;
+    pipelineInfo.renderPass = renderPass;
+    pipelineInfo.subpass = 0;
+
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &debugPipeline) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create debug pipeline!");
+    }
+
+    vkDestroyShaderModule(device, fragShaderModule, nullptr);
+    vkDestroyShaderModule(device, vertShaderModule, nullptr);
+
+    std::cout << "Debug visualization pipeline created" << std::endl;
+}
+
+void Application::createDebugMarkers() {
+    // Initial buffer creation with placeholder data
+    // Will be updated in updateDebugMarkers()
+    const size_t maxVertices = 1000;  // Plenty for our debug markers
+    VkDeviceSize bufferSize = sizeof(float) * 6 * maxVertices;  // 6 floats per vertex (pos + color)
+
+    createBuffer(bufferSize,
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                debugVertexBuffer, debugVertexBufferMemory);
+
+    std::cout << "Debug marker buffer created" << std::endl;
+}
+
+void Application::updateDebugMarkers() {
+    // Build debug visualization data
+    struct DebugVertex {
+        float x, y, z;      // Position
+        float r, g, b;      // Color
+    };
+
+    std::vector<DebugVertex> vertices;
+
+    // Get car dimensions in world space
+    glm::vec3 carDimensions = carModel.getDimensions() * carScaleFactor;
+
+    // Calculate rotation matrix (same as car model)
+    glm::mat4 rotationMatrix = glm::mat4(1.0f);
+    rotationMatrix = glm::rotate(rotationMatrix, glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
+    rotationMatrix = glm::rotate(rotationMatrix, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+
+    // 1. Car origin (0,0,0 in model space) - WHITE cross
+    auto addLine = [&](glm::vec3 start, glm::vec3 end, glm::vec3 color) {
+        vertices.push_back({start.x, start.y, start.z, color.r, color.g, color.b});
+        vertices.push_back({end.x, end.y, end.z, color.r, color.g, color.b});
+    };
+
+    // Car origin axes (small, 0.5m each direction)
+    glm::vec3 origin = carPosition;
+    glm::vec3 xAxis = glm::vec3(rotationMatrix * glm::vec4(0.5f, 0.0f, 0.0f, 0.0f));
+    glm::vec3 yAxis = glm::vec3(rotationMatrix * glm::vec4(0.0f, 0.5f, 0.0f, 0.0f));
+    glm::vec3 zAxis = glm::vec3(rotationMatrix * glm::vec4(0.0f, 0.0f, 0.5f, 0.0f));
+
+    addLine(origin, origin + xAxis, glm::vec3(1.0f, 0.0f, 0.0f));  // X = RED
+    addLine(origin, origin + yAxis, glm::vec3(0.0f, 1.0f, 0.0f));  // Y = GREEN
+    addLine(origin, origin + zAxis, glm::vec3(0.0f, 0.0f, 1.0f));  // Z = BLUE
+
+    // 2. Bounding box corners - YELLOW
+    glm::vec3 bbMin = carModel.getMinBounds() * carScaleFactor;
+    glm::vec3 bbMax = carModel.getMaxBounds() * carScaleFactor;
+
+    // Transform bounding box corners to world space
+    auto transformPoint = [&](glm::vec3 localPoint) -> glm::vec3 {
+        glm::vec3 rotated = glm::vec3(rotationMatrix * glm::vec4(localPoint, 0.0f));
+        return carPosition + rotated;
+    };
+
+    glm::vec3 corners[8] = {
+        transformPoint(glm::vec3(bbMin.x, bbMin.y, bbMin.z)),
+        transformPoint(glm::vec3(bbMax.x, bbMin.y, bbMin.z)),
+        transformPoint(glm::vec3(bbMax.x, bbMax.y, bbMin.z)),
+        transformPoint(glm::vec3(bbMin.x, bbMax.y, bbMin.z)),
+        transformPoint(glm::vec3(bbMin.x, bbMin.y, bbMax.z)),
+        transformPoint(glm::vec3(bbMax.x, bbMin.y, bbMax.z)),
+        transformPoint(glm::vec3(bbMax.x, bbMax.y, bbMax.z)),
+        transformPoint(glm::vec3(bbMin.x, bbMax.y, bbMax.z))
+    };
+
+    glm::vec3 yellow(1.0f, 1.0f, 0.0f);
+    // Bottom face
+    addLine(corners[0], corners[1], yellow);
+    addLine(corners[1], corners[2], yellow);
+    addLine(corners[2], corners[3], yellow);
+    addLine(corners[3], corners[0], yellow);
+    // Top face
+    addLine(corners[4], corners[5], yellow);
+    addLine(corners[5], corners[6], yellow);
+    addLine(corners[6], corners[7], yellow);
+    addLine(corners[7], corners[4], yellow);
+    // Vertical edges
+    addLine(corners[0], corners[4], yellow);
+    addLine(corners[1], corners[5], yellow);
+    addLine(corners[2], corners[6], yellow);
+    addLine(corners[3], corners[7], yellow);
+
+    // 3. Cockpit offset position - CYAN
+    glm::vec3 rotatedOffset = glm::vec3(rotationMatrix * glm::vec4(cockpitOffset, 0.0f));
+    glm::vec3 cockpitPos = carPosition + rotatedOffset + glm::vec3(0.0f, 0.4f, 0.0f);  // Same as camera calc
+
+    // Draw a cross at cockpit position
+    glm::vec3 cyan(0.0f, 1.0f, 1.0f);
+    addLine(cockpitPos + glm::vec3(-0.2f, 0.0f, 0.0f), cockpitPos + glm::vec3(0.2f, 0.0f, 0.0f), cyan);
+    addLine(cockpitPos + glm::vec3(0.0f, -0.2f, 0.0f), cockpitPos + glm::vec3(0.0f, 0.2f, 0.0f), cyan);
+    addLine(cockpitPos + glm::vec3(0.0f, 0.0f, -0.2f), cockpitPos + glm::vec3(0.0f, 0.0f, 0.2f), cyan);
+
+    // 4. Line from car origin to cockpit - MAGENTA
+    glm::vec3 magenta(1.0f, 0.0f, 1.0f);
+    addLine(origin, cockpitPos, magenta);
+
+    // 5. Car world position marker at ground level - BRIGHT GREEN (shows where car is on ground)
+    glm::vec3 carGroundPos(carPosition.x, 0.0f, carPosition.z);  // Project to ground
+    glm::vec3 brightGreen(0.0f, 1.0f, 0.0f);
+    // Draw a bright cross at the car's ground position
+    addLine(carGroundPos + glm::vec3(-0.5f, 0.0f, 0.0f), carGroundPos + glm::vec3(0.5f, 0.0f, 0.0f), brightGreen);
+    addLine(carGroundPos + glm::vec3(0.0f, 0.0f, -0.5f), carGroundPos + glm::vec3(0.0f, 0.0f, 0.5f), brightGreen);
+    // Vertical line from ground to car origin
+    addLine(carGroundPos, carPosition, brightGreen);
+
+    // 6. Ground reference grid at car position (helps see elevation) - DARK GREY
+    glm::vec3 darkGrey(0.4f, 0.4f, 0.4f);
+    for (int i = -2; i <= 2; i++) {
+        glm::vec3 start(carPosition.x + i * 1.0f, 0.0f, carPosition.z - 2.0f);
+        glm::vec3 end(carPosition.x + i * 1.0f, 0.0f, carPosition.z + 2.0f);
+        addLine(start, end, darkGrey);
+
+        start = glm::vec3(carPosition.x - 2.0f, 0.0f, carPosition.z + i * 1.0f);
+        end = glm::vec3(carPosition.x + 2.0f, 0.0f, carPosition.z + i * 1.0f);
+        addLine(start, end, darkGrey);
+    }
+
+    // Update vertex count
+    debugVertexCount = static_cast<uint32_t>(vertices.size());
+
+    // Copy to GPU
+    void* data;
+    vkMapMemory(device, debugVertexBufferMemory, 0, sizeof(DebugVertex) * vertices.size(), 0, &data);
+    memcpy(data, vertices.data(), sizeof(DebugVertex) * vertices.size());
+    vkUnmapMemory(device, debugVertexBufferMemory);
+}
+
+void Application::renderDebugMarkers(VkCommandBuffer cmd, uint32_t frameIndex) {
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debugPipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                           debugPipelineLayout, 0, 1,
+                           &descriptorSets[frameIndex], 0, nullptr);
+
+    VkBuffer vertexBuffers[] = {debugVertexBuffer};
+    VkDeviceSize offsets[] = {0};
+    vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+
+    vkCmdDraw(cmd, debugVertexCount, 1, 0, 0);
 }
 
 } // namespace DownPour
