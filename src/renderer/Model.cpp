@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <cstring>
+#include <filesystem>
 
 namespace DownPour {
 
@@ -124,37 +125,141 @@ void Model::loadFromFile(const std::string& filepath,
             // Calculate index count for this primitive
             uint32_t primitiveIndexCount = static_cast<uint32_t>(indices.size()) - primitiveIndexStart;
 
+            // Store named mesh information
+            NamedMesh namedMesh;
+            namedMesh.name = mesh.name;
+            namedMesh.primitiveIndex = static_cast<uint32_t>(&primitive - &mesh.primitives[0]);
+            namedMesh.indexStart = primitiveIndexStart;
+            namedMesh.indexCount = primitiveIndexCount;
+            namedMesh.transform = glm::mat4(1.0f);
+
+            // If mesh has multiple primitives, append primitive index to name
+            if (mesh.primitives.size() > 1) {
+                namedMesh.name += "_primitive" + std::to_string(namedMesh.primitiveIndex);
+            }
+
+            // Only store if mesh has a name and valid geometry
+            if (!mesh.name.empty() && primitiveIndexCount > 0) {
+                namedMeshes.push_back(namedMesh);
+            }
+
             // Load texture/material if available
             if (primitive.material >= 0) {
                 const tinygltf::Material& gltfMaterial = model.materials[primitive.material];
+                Material newMaterial;
+                newMaterial.indexStart = primitiveIndexStart;
+                newMaterial.indexCount = primitiveIndexCount;
+                bool materialHasTexture = false;
+
+                // Load base color texture
                 if (gltfMaterial.pbrMetallicRoughness.baseColorTexture.index >= 0) {
                     int textureIndex = gltfMaterial.pbrMetallicRoughness.baseColorTexture.index;
                     const tinygltf::Texture& texture = model.textures[textureIndex];
                     const tinygltf::Image& image = model.images[texture.source];
 
-                    // Validate image data
-                    if (!image.image.empty() && image.width > 0 && image.height > 0) {
-                        Material newMaterial;
-                        newMaterial.indexStart = primitiveIndexStart;
-                        newMaterial.indexCount = primitiveIndexCount;
-
-                        // Create texture from image data
+                    // Check if texture is external (has URI) or embedded
+                    if (!image.uri.empty()) {
+                        // External texture - load from file
+                        std::string texturePath = resolveTexturePath(filepath, image.uri);
+                        loadExternalTexture(texturePath, device, physicalDevice, commandPool, graphicsQueue,
+                                          newMaterial.textureImage, newMaterial.textureImageMemory,
+                                          newMaterial.textureImageView, newMaterial.textureSampler);
+                        if (newMaterial.textureImage != VK_NULL_HANDLE) {
+                            materialHasTexture = true;
+                        }
+                    } else if (!image.image.empty() && image.width > 0 && image.height > 0) {
+                        // Embedded texture - load from image data
                         createTextureImage(device, physicalDevice, commandPool, graphicsQueue,
                                          image.image.data(), image.width, image.height, image.component,
                                          newMaterial);
                         createTextureImageView(device, newMaterial);
                         createTextureSampler(device, newMaterial);
-
-                        std::cout << "Loaded texture: " << image.width << "x" << image.height
+                        std::cout << "Loaded embedded base color texture: " << image.width << "x" << image.height
                                  << " (" << image.component << " components)" << std::endl;
-
-                        materials.push_back(newMaterial);
+                        materialHasTexture = true;
                     }
-                } else {
-                    // Material has no texture - skip for now
+                }
+
+                // Load normal map
+                if (gltfMaterial.normalTexture.index >= 0) {
+                    int texIndex = gltfMaterial.normalTexture.index;
+                    const tinygltf::Texture& texture = model.textures[texIndex];
+                    const tinygltf::Image& image = model.images[texture.source];
+
+                    if (!image.uri.empty()) {
+                        std::string texturePath = resolveTexturePath(filepath, image.uri);
+                        loadExternalTexture(texturePath, device, physicalDevice, commandPool, graphicsQueue,
+                                          newMaterial.normalMap, newMaterial.normalMapMemory,
+                                          newMaterial.normalMapView, newMaterial.normalMapSampler);
+                        if (newMaterial.normalMap != VK_NULL_HANDLE) {
+                            newMaterial.hasNormalMap = true;
+                            materialHasTexture = true;
+                        }
+                    } else if (!image.image.empty()) {
+                        // Could load embedded normal map here if needed
+                        std::cout << "Found embedded normal map (not implemented)" << std::endl;
+                    }
+                }
+
+                // Load metallic/roughness texture
+                if (gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index >= 0) {
+                    int texIndex = gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index;
+                    const tinygltf::Texture& texture = model.textures[texIndex];
+                    const tinygltf::Image& image = model.images[texture.source];
+
+                    if (!image.uri.empty()) {
+                        std::string texturePath = resolveTexturePath(filepath, image.uri);
+                        loadExternalTexture(texturePath, device, physicalDevice, commandPool, graphicsQueue,
+                                          newMaterial.metallicRoughnessMap, newMaterial.metallicRoughnessMemory,
+                                          newMaterial.metallicRoughnessView, newMaterial.metallicRoughnessSampler);
+                        if (newMaterial.metallicRoughnessMap != VK_NULL_HANDLE) {
+                            newMaterial.hasMetallicRoughness = true;
+                            materialHasTexture = true;
+                        }
+                    } else if (!image.image.empty()) {
+                        std::cout << "Found embedded metallic/roughness map (not implemented)" << std::endl;
+                    }
+                }
+
+                // Load emissive texture
+                if (gltfMaterial.emissiveTexture.index >= 0) {
+                    int texIndex = gltfMaterial.emissiveTexture.index;
+                    const tinygltf::Texture& texture = model.textures[texIndex];
+                    const tinygltf::Image& image = model.images[texture.source];
+
+                    if (!image.uri.empty()) {
+                        std::string texturePath = resolveTexturePath(filepath, image.uri);
+                        loadExternalTexture(texturePath, device, physicalDevice, commandPool, graphicsQueue,
+                                          newMaterial.emissiveMap, newMaterial.emissiveMapMemory,
+                                          newMaterial.emissiveMapView, newMaterial.emissiveMapSampler);
+                        if (newMaterial.emissiveMap != VK_NULL_HANDLE) {
+                            newMaterial.hasEmissive = true;
+                            materialHasTexture = true;
+                        }
+                    } else if (!image.image.empty()) {
+                        std::cout << "Found embedded emissive map (not implemented)" << std::endl;
+                    }
+                }
+
+                // Only add material if it has at least one texture
+                if (materialHasTexture) {
+                    materials.push_back(newMaterial);
                 }
             }
         }
+    }
+
+    // Print loaded mesh names for debugging
+    if (!namedMeshes.empty()) {
+        std::cout << "\n=== LOADED MESH NAMES ===" << std::endl;
+        std::cout << "Found " << namedMeshes.size() << " named meshes:" << std::endl;
+        for (const auto& mesh : namedMeshes) {
+            std::cout << "  - \"" << mesh.name << "\" (primitive " << mesh.primitiveIndex
+                      << "): indices [" << mesh.indexStart << " to "
+                      << (mesh.indexStart + mesh.indexCount - 1) << "], count = "
+                      << mesh.indexCount << std::endl;
+        }
+        std::cout << "=========================\n" << std::endl;
     }
 
     indexCount = static_cast<uint32_t>(indices.size());
@@ -568,9 +673,83 @@ void Model::copyBufferToImage(VkDevice device, VkCommandPool commandPool, VkQueu
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
+void Model::loadExternalTexture(const std::string& filepath,
+                                VkDevice device,
+                                VkPhysicalDevice physicalDevice,
+                                VkCommandPool commandPool,
+                                VkQueue graphicsQueue,
+                                VkImage& outImage,
+                                VkDeviceMemory& outMemory,
+                                VkImageView& outView,
+                                VkSampler& outSampler) {
+    // Load image using stb_image
+    int texWidth, texHeight, texChannels;
+    stbi_uc* pixels = stbi_load(filepath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+
+    if (!pixels) {
+        std::cerr << "Warning: Failed to load external texture: " << filepath << std::endl;
+        return; // Non-fatal, just skip texture
+    }
+
+    std::cout << "Loading external texture: " << filepath
+              << " (" << texWidth << "x" << texHeight << ", " << texChannels << " channels)" << std::endl;
+
+    // Create a temporary material to use existing infrastructure
+    Material tempMaterial;
+    createTextureImage(device, physicalDevice, commandPool, graphicsQueue,
+                      pixels, texWidth, texHeight, 4, tempMaterial);
+    createTextureImageView(device, tempMaterial);
+    createTextureSampler(device, tempMaterial);
+
+    // Transfer handles to output parameters
+    outImage = tempMaterial.textureImage;
+    outMemory = tempMaterial.textureImageMemory;
+    outView = tempMaterial.textureImageView;
+    outSampler = tempMaterial.textureSampler;
+
+    // Clear temp material handles so they don't get destroyed
+    tempMaterial.textureImage = VK_NULL_HANDLE;
+    tempMaterial.textureImageMemory = VK_NULL_HANDLE;
+    tempMaterial.textureImageView = VK_NULL_HANDLE;
+    tempMaterial.textureSampler = VK_NULL_HANDLE;
+
+    stbi_image_free(pixels);
+}
+
+std::string Model::resolveTexturePath(const std::string& modelPath,
+                                       const std::string& textureUri) {
+    // Get directory of model file
+    std::filesystem::path modelDir = std::filesystem::path(modelPath).parent_path();
+
+    // Resolve relative URI (try model directory first)
+    std::filesystem::path texturePath = modelDir / textureUri;
+
+    if (std::filesystem::exists(texturePath)) {
+        std::cout << "Found texture at: " << texturePath.string() << std::endl;
+        return texturePath.string();
+    }
+
+    // Try alternate location: assets/textures/[model_name]/[texture_file]
+    std::string modelName = std::filesystem::path(modelPath).stem().string();
+    std::filesystem::path textureFilename = std::filesystem::path(textureUri).filename();
+    std::filesystem::path altPath = std::filesystem::path("assets/textures") / modelName / textureFilename;
+
+    if (std::filesystem::exists(altPath)) {
+        std::cout << "Found texture at alternate location: " << altPath.string() << std::endl;
+        return altPath.string();
+    }
+
+    // Return original path and let loading fail gracefully
+    std::cerr << "Warning: Could not resolve texture path for: " << textureUri << std::endl;
+    std::cerr << "  Tried: " << texturePath.string() << std::endl;
+    std::cerr << "  Tried: " << altPath.string() << std::endl;
+    return texturePath.string();
+}
+
 void Model::cleanup(VkDevice device) {
     // Clean up all materials
     for (auto& material : materials) {
+        // Clean up base color texture
         if (material.textureSampler != VK_NULL_HANDLE) {
             vkDestroySampler(device, material.textureSampler, nullptr);
             material.textureSampler = VK_NULL_HANDLE;
@@ -586,6 +765,60 @@ void Model::cleanup(VkDevice device) {
         if (material.textureImageMemory != VK_NULL_HANDLE) {
             vkFreeMemory(device, material.textureImageMemory, nullptr);
             material.textureImageMemory = VK_NULL_HANDLE;
+        }
+
+        // Clean up normal map
+        if (material.normalMapSampler != VK_NULL_HANDLE) {
+            vkDestroySampler(device, material.normalMapSampler, nullptr);
+            material.normalMapSampler = VK_NULL_HANDLE;
+        }
+        if (material.normalMapView != VK_NULL_HANDLE) {
+            vkDestroyImageView(device, material.normalMapView, nullptr);
+            material.normalMapView = VK_NULL_HANDLE;
+        }
+        if (material.normalMap != VK_NULL_HANDLE) {
+            vkDestroyImage(device, material.normalMap, nullptr);
+            material.normalMap = VK_NULL_HANDLE;
+        }
+        if (material.normalMapMemory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, material.normalMapMemory, nullptr);
+            material.normalMapMemory = VK_NULL_HANDLE;
+        }
+
+        // Clean up metallic/roughness map
+        if (material.metallicRoughnessSampler != VK_NULL_HANDLE) {
+            vkDestroySampler(device, material.metallicRoughnessSampler, nullptr);
+            material.metallicRoughnessSampler = VK_NULL_HANDLE;
+        }
+        if (material.metallicRoughnessView != VK_NULL_HANDLE) {
+            vkDestroyImageView(device, material.metallicRoughnessView, nullptr);
+            material.metallicRoughnessView = VK_NULL_HANDLE;
+        }
+        if (material.metallicRoughnessMap != VK_NULL_HANDLE) {
+            vkDestroyImage(device, material.metallicRoughnessMap, nullptr);
+            material.metallicRoughnessMap = VK_NULL_HANDLE;
+        }
+        if (material.metallicRoughnessMemory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, material.metallicRoughnessMemory, nullptr);
+            material.metallicRoughnessMemory = VK_NULL_HANDLE;
+        }
+
+        // Clean up emissive map
+        if (material.emissiveMapSampler != VK_NULL_HANDLE) {
+            vkDestroySampler(device, material.emissiveMapSampler, nullptr);
+            material.emissiveMapSampler = VK_NULL_HANDLE;
+        }
+        if (material.emissiveMapView != VK_NULL_HANDLE) {
+            vkDestroyImageView(device, material.emissiveMapView, nullptr);
+            material.emissiveMapView = VK_NULL_HANDLE;
+        }
+        if (material.emissiveMap != VK_NULL_HANDLE) {
+            vkDestroyImage(device, material.emissiveMap, nullptr);
+            material.emissiveMap = VK_NULL_HANDLE;
+        }
+        if (material.emissiveMapMemory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, material.emissiveMapMemory, nullptr);
+            material.emissiveMapMemory = VK_NULL_HANDLE;
         }
     }
     materials.clear();
@@ -606,6 +839,45 @@ void Model::cleanup(VkDevice device) {
         vkFreeMemory(device, vertexBufferMemory, nullptr);
         vertexBufferMemory = VK_NULL_HANDLE;
     }
+}
+
+std::vector<std::string> Model::getMeshNames() const {
+    std::vector<std::string> names;
+    names.reserve(namedMeshes.size());
+    for (const auto& mesh : namedMeshes) {
+        names.push_back(mesh.name);
+    }
+    return names;
+}
+
+bool Model::getMeshByName(const std::string& name, NamedMesh& outMesh) const {
+    for (const auto& mesh : namedMeshes) {
+        if (mesh.name == name) {
+            outMesh = mesh;
+            return true;
+        }
+    }
+    return false;
+}
+
+std::vector<NamedMesh> Model::getMeshesByPrefix(const std::string& prefix) const {
+    std::vector<NamedMesh> matches;
+    for (const auto& mesh : namedMeshes) {
+        if (mesh.name.find(prefix) == 0) {
+            matches.push_back(mesh);
+        }
+    }
+    return matches;
+}
+
+bool Model::getMeshIndexRange(const std::string& name, uint32_t& outStart, uint32_t& outCount) const {
+    NamedMesh mesh;
+    if (getMeshByName(name, mesh)) {
+        outStart = mesh.indexStart;
+        outCount = mesh.indexCount;
+        return true;
+    }
+    return false;
 }
 
 } // namespace DownPour

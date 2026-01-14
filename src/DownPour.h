@@ -67,10 +67,41 @@ private:
     float carVelocity = 0.0f;
     float carRotation = 0.0f;
     float carScaleFactor = 1.0f;  // Calculated scale to achieve realistic size
-    
+
+    /**
+     * @brief Index ranges for specific car parts that need animation
+     */
+    struct CarParts {
+        uint32_t steeringWheelFrontStart = 0;
+        uint32_t steeringWheelFrontCount = 0;
+        uint32_t steeringWheelBackStart = 0;
+        uint32_t steeringWheelBackCount = 0;
+
+        uint32_t leftWiperStart = 0;
+        uint32_t leftWiperCount = 0;
+        uint32_t rightWiperStart = 0;
+        uint32_t rightWiperCount = 0;
+
+        bool hasSteeringWheel = false;
+        bool hasWipers = false;
+    };
+
+    CarParts carParts;
+    float steeringWheelRotation = 0.0f;  // Current steering wheel rotation in degrees
+
     // Simplified cockpit camera - hard-coded offset for initial implementation
     // Can be adjusted based on different car models later
-    glm::vec3 cockpitOffset = glm::vec3(0.0f, 1.2f, 0.5f);  // Reasonable cockpit position
+    // Note: These values are in the MODEL'S local space BEFORE the 90° X rotation
+    // Calculated based on car bounding box: 75% height, 40% from front
+    glm::vec3 cockpitOffset = glm::vec3(0.0f, -0.21f, -0.18f);  // X=0(center), Y=forward(neg), Z=up
+
+    // Debug visualization
+    bool debugVisualizationEnabled = true;  // Toggle with 'V' key
+    VkBuffer debugVertexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory debugVertexBufferMemory = VK_NULL_HANDLE;
+    uint32_t debugVertexCount = 0;
+    VkPipeline debugPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout debugPipelineLayout = VK_NULL_HANDLE;
     
     // Weather simulation system
     Simulation::WeatherSystem weatherSystem;
@@ -105,18 +136,20 @@ private:
     VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
     VkImageView depthImageView = VK_NULL_HANDLE;
 
-    // road and index buffer
-    VkBuffer roadVertexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory roadVertexBufferMemory = VK_NULL_HANDLE;
-    VkBuffer roadIndexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory roadIndexBufferMemory = VK_NULL_HANDLE;
-    uint32_t roadIndexCount = 0;
+    // OLD: Procedural road buffers - no longer needed (now using Model)
+    // VkBuffer roadVertexBuffer = VK_NULL_HANDLE;
+    // VkDeviceMemory roadVertexBufferMemory = VK_NULL_HANDLE;
+    // VkBuffer roadIndexBuffer = VK_NULL_HANDLE;
+    // VkDeviceMemory roadIndexBufferMemory = VK_NULL_HANDLE;
+    // uint32_t roadIndexCount = 0;
     // World pipeline
     VkPipeline worldPipeline = VK_NULL_HANDLE;
     VkPipelineLayout worldPipelineLayout = VK_NULL_HANDLE;
 
     // Car model
     Model carModel;
+    // Road model
+    Model roadModel;
     VkPipeline carPipeline = VK_NULL_HANDLE;
     VkPipelineLayout carPipelineLayout = VK_NULL_HANDLE;
     VkDescriptorSetLayout carDescriptorSetLayout = VK_NULL_HANDLE;
@@ -211,6 +244,9 @@ private:
     void createCarPipeline();
     void createCarDescriptorSets();
 
+    // Road rendering methods
+    void loadRoadModel();
+
     // Windshield rendering methods
     void createWindshieldPipeline();
     void renderWindshield(VkCommandBuffer cmd, uint32_t frameIndex);
@@ -218,6 +254,12 @@ private:
     // Car simulation methods
     void updateCarPhysics(float deltaTime);
     void updateCameraForCockpit();
+
+    // Debug visualization methods
+    void createDebugPipeline();
+    void createDebugMarkers();
+    void updateDebugMarkers();
+    void renderDebugMarkers(VkCommandBuffer cmd, uint32_t frameIndex);
 
 };
 

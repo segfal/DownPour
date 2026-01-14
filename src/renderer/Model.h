@@ -13,12 +13,56 @@ namespace DownPour {
  * @brief Material structure holding texture resources and index range
  */
 struct Material {
+    // Base color texture
     VkImage textureImage = VK_NULL_HANDLE;
     VkDeviceMemory textureImageMemory = VK_NULL_HANDLE;
     VkImageView textureImageView = VK_NULL_HANDLE;
     VkSampler textureSampler = VK_NULL_HANDLE;
+
+    // PBR textures (optional)
+    VkImage normalMap = VK_NULL_HANDLE;
+    VkDeviceMemory normalMapMemory = VK_NULL_HANDLE;
+    VkImageView normalMapView = VK_NULL_HANDLE;
+    VkSampler normalMapSampler = VK_NULL_HANDLE;
+
+    VkImage metallicRoughnessMap = VK_NULL_HANDLE;
+    VkDeviceMemory metallicRoughnessMemory = VK_NULL_HANDLE;
+    VkImageView metallicRoughnessView = VK_NULL_HANDLE;
+    VkSampler metallicRoughnessSampler = VK_NULL_HANDLE;
+
+    VkImage emissiveMap = VK_NULL_HANDLE;
+    VkDeviceMemory emissiveMapMemory = VK_NULL_HANDLE;
+    VkImageView emissiveMapView = VK_NULL_HANDLE;
+    VkSampler emissiveMapSampler = VK_NULL_HANDLE;
+
+    // Index range for this material
     uint32_t indexStart = 0;  // Starting index in the index buffer
     uint32_t indexCount = 0;  // Number of indices for this material
+
+    // Flags to track which textures are present
+    bool hasNormalMap = false;
+    bool hasMetallicRoughness = false;
+    bool hasEmissive = false;
+};
+
+/**
+ * @brief Named mesh structure holding mesh name and index range
+ *
+ * A glTF mesh can contain multiple primitives. This struct stores
+ * the index range for a specific primitive within a mesh.
+ */
+struct NamedMesh {
+    std::string name;           // Mesh name from glTF
+    uint32_t primitiveIndex;    // Which primitive within the mesh (0, 1, 2...)
+    uint32_t indexStart;        // Starting index in the index buffer
+    uint32_t indexCount;        // Number of indices for this primitive
+    glm::mat4 transform;        // Optional transform (defaults to identity)
+
+    NamedMesh()
+        : primitiveIndex(0)
+        , indexStart(0)
+        , indexCount(0)
+        , transform(glm::mat4(1.0f)) {}
 };
 
 /**
@@ -67,6 +111,36 @@ public:
      * @brief Get the number of indices
      */
     uint32_t getIndexCount() const { return indexCount; }
+
+    /**
+     * @brief Get all mesh names loaded in the model
+     * @return Vector of all mesh names
+     */
+    std::vector<std::string> getMeshNames() const;
+
+    /**
+     * @brief Get a mesh by exact name match
+     * @param name The exact mesh name to search for
+     * @param outMesh Output parameter filled with mesh data if found
+     * @return true if mesh was found, false otherwise
+     */
+    bool getMeshByName(const std::string& name, NamedMesh& outMesh) const;
+
+    /**
+     * @brief Get all meshes whose names start with the given prefix
+     * @param prefix The name prefix to search for
+     * @return Vector of matching meshes (empty if none found)
+     */
+    std::vector<NamedMesh> getMeshesByPrefix(const std::string& prefix) const;
+
+    /**
+     * @brief Get the index range for a specific mesh
+     * @param name The mesh name to search for
+     * @param outStart Output parameter for index start
+     * @param outCount Output parameter for index count
+     * @return true if mesh was found, false otherwise
+     */
+    bool getMeshIndexRange(const std::string& name, uint32_t& outStart, uint32_t& outCount) const;
 
     /**
      * @brief Get the model matrix
@@ -155,6 +229,23 @@ private:
                               VkImageLayout oldLayout, VkImageLayout newLayout);
     void copyBufferToImage(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue,
                           VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+
+    // External texture loading
+    void loadExternalTexture(const std::string& filepath,
+                            VkDevice device,
+                            VkPhysicalDevice physicalDevice,
+                            VkCommandPool commandPool,
+                            VkQueue graphicsQueue,
+                            VkImage& outImage,
+                            VkDeviceMemory& outMemory,
+                            VkImageView& outView,
+                            VkSampler& outSampler);
+
+    std::string resolveTexturePath(const std::string& modelPath,
+                                   const std::string& textureUri);
+
+    // Named mesh storage
+    std::vector<NamedMesh> namedMeshes;
 };
 
 } // namespace DownPour
