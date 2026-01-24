@@ -13,19 +13,37 @@ This document outlines the essential coding standards for the DownPour project. 
 - **Files**: Match class name (e.g., `WeatherSystem.h`, `WeatherSystem.cpp`)
 
 ### Formatting
+
+All code is formatted using clang-format with the configuration in `.clang-format`.
+
+Key formatting rules:
 - **Indentation**: 4 spaces (no tabs)
 - **Braces**: K&R style (opening brace on same line)
-- **Line length**: ~100 characters max
+- **Line length**: 120 characters maximum
 - **Spacing**: One space after keywords, around operators
+- **Alignment**: Consecutive declarations and assignments are aligned for readability
 
 ```cpp
-// Example
+// Aligned member variables
+struct TextureHandle {
+    VkImage        image   = VK_NULL_HANDLE;
+    VkImageView    view    = VK_NULL_HANDLE;
+    VkSampler      sampler = VK_NULL_HANDLE;
+    VkDeviceMemory memory  = VK_NULL_HANDLE;
+};
+
+// Function formatting
 void Application::mainLoop() {
     while (!glfwWindowShouldClose(window)) {
         float deltaTime = calculateDeltaTime();
         updateSimulation(deltaTime);
     }
 }
+```
+
+To format code automatically, run:
+```bash
+clang-format -i path/to/file.cpp
 ```
 
 ## Code Organization
@@ -196,7 +214,7 @@ appInfo.pApplicationName = "DownPour";
 Before submitting code:
 - [ ] Follows naming conventions
 - [ ] Public APIs documented
-- [ ] Properly formatted (4 spaces, K&R braces)
+- [ ] Code formatted with clang-format
 - [ ] No compiler warnings
 - [ ] Resources properly managed (no leaks)
 - [ ] Modern C++ features used appropriately
@@ -207,4 +225,3 @@ Before submitting code:
 - [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)
 - [C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines)
 - [Vulkan Best Practices](https://www.khronos.org/vulkan/)
-

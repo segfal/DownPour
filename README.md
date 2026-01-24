@@ -44,6 +44,12 @@ DownPour/
 
 ```
 
+### Documentation
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture with Mermaid diagrams (state machines, object relationships)
+- **[MATH.md](MATH.md)** - Mathematical reference with all formulas and equations used in the codebase
+- **[CODING_STANDARDS.md](CODING_STANDARDS.md)** - Code style guidelines and best practices
+
 ## Code Organization
 
 The codebase follows a clear separation of concerns:
@@ -149,6 +155,14 @@ This project follows simplified C++ best practices:
 - **Modern C++**: C++17 features (auto, nullptr, constexpr, etc.)
 
 For detailed guidelines, see [CODING_STANDARDS.md](CODING_STANDARDS.md).
+
+## Technical Documentation
+
+The project includes comprehensive technical documentation:
+
+- **Architecture Diagrams:** [ARCHITECTURE.md](ARCHITECTURE.md) provides Mermaid state and object diagrams documenting system behavior, component relationships, and rendering pipelines.
+
+- **Mathematical Reference:** [MATH.md](MATH.md) documents all formulas and equations used throughout the codebase, including camera transformations, physics simulations, and graphics algorithms with LaTeX notation.
 
 ## Contributing
 

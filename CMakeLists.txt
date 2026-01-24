@@ -20,6 +20,7 @@ add_executable(${PROJECT_NAME}
     src/renderer/Camera.cpp
     src/renderer/Vertex.cpp
     src/renderer/Model.cpp
+    src/renderer/MaterialManager.cpp
     src/simulation/WeatherSystem.cpp
     src/simulation/WindshieldSurface.cpp
 )
