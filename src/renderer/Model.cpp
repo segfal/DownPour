@@ -72,7 +72,7 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
                 if (normalAccessor) {
                     const float* norm = reinterpret_cast<const float*>(
                         &normalBuffer->data[normalView->byteOffset + normalAccessor->byteOffset + i * 12]);
-                    vertex.normal = glm::vec3(norm[0], norm[1], norm[2]);
+                        vertex.normal = glm::vec3(norm[0], norm[1], norm[2]);
                 } else {
                     vertex.normal = glm::vec3(0.0f, 1.0f, 0.0f);
                 }
@@ -132,7 +132,7 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
             // Load texture/material if available
             if (primitive.material >= 0) {
                 const tinygltf::Material& gltfMaterial = model.materials[primitive.material];
-                Material                  newMaterial;
+                Material                 newMaterial;
                 newMaterial.name       = gltfMaterial.name;
                 newMaterial.indexStart = primitiveIndexStart;
                 newMaterial.indexCount = primitiveIndexCount;
@@ -151,9 +151,7 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
                 }
 
                 // Detect transparency from glTF alphaMode
-                if (gltfMaterial.alphaMode == "BLEND") {
-                    newMaterial.props.isTransparent = true;
-                }
+                if (gltfMaterial.alphaMode == "BLEND") newMaterial.props.isTransparent = true;
 
                 // Get base color factor alpha
                 bool hasCustomAlpha = (newMaterial.props.alphaValue < 0.99f);
@@ -204,8 +202,6 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
                         newMaterial.props.hasEmissive = true;
                     }
                 }
-
-                // Always add material
                 materials.push_back(newMaterial);
             }
         }
@@ -222,7 +218,6 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
             minBounds.x = std::min(minBounds.x, vertex.position.x);
             minBounds.y = std::min(minBounds.y, vertex.position.y);
             minBounds.z = std::min(minBounds.z, vertex.position.z);
-
             maxBounds.x = std::max(maxBounds.x, vertex.position.x);
             maxBounds.y = std::max(maxBounds.y, vertex.position.y);
             maxBounds.z = std::max(maxBounds.z, vertex.position.z);
@@ -230,14 +225,6 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
 
         glm::vec3 dimensions = maxBounds - minBounds;
         glm::vec3 center     = (minBounds + maxBounds) * 0.5f;
-
-        std::cout << "\n=== MODEL BOUNDS INFO ===" << std::endl;
-        std::cout << "Min bounds: (" << minBounds.x << ", " << minBounds.y << ", " << minBounds.z << ")" << std::endl;
-        std::cout << "Max bounds: (" << maxBounds.x << ", " << maxBounds.y << ", " << maxBounds.z << ")" << std::endl;
-        std::cout << "Dimensions (W x H x D): " << dimensions.x << " x " << dimensions.y << " x " << dimensions.z
-                  << std::endl;
-        std::cout << "Center: (" << center.x << ", " << center.y << ", " << center.z << ")" << std::endl;
-        std::cout << "=========================\n" << std::endl;
     }
 
     // Create Vulkan buffers
@@ -409,11 +396,9 @@ std::string Model::resolveTexturePath(const std::string& modelPath, const std::s
 }
 
 void Model::cleanup(VkDevice device) {
-    // Materials no longer contain Vulkan resources
-    // GPU resources are managed by MaterialManager
     materials.clear();
 
-    // Clean up geometry buffers
+
     if (indexBuffer != VK_NULL_HANDLE) {
         vkDestroyBuffer(device, indexBuffer, nullptr);
         indexBuffer = VK_NULL_HANDLE;
@@ -520,4 +505,4 @@ bool Model::getMeshIndexRange(const std::string& name, uint32_t& outStart, uint3
     return false;
 }
 
-}  // namespace DownPour
+}  
