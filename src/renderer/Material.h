@@ -4,6 +4,8 @@
 
 #include <string>
 #include <unordered_map>
+#include <functional>
+#include <map>
 #include <vector>
 
 namespace DownPour {
@@ -56,21 +58,76 @@ struct MaterialProperties {
  * Contains references to texture assets (paths) and rendering properties,
  * but no GPU-specific resources.
  */
+/**
+ * @brief Embedded texture data (for GLB files)
+ *
+ * Stores raw pixel data for textures embedded in binary glTF files.
+ */
+struct EmbeddedTexture {
+    std::vector<unsigned char> pixels;  // Raw RGBA pixel data
+    int                        width  = 0;
+    int                        height = 0;
+
+    bool isValid() const { return !pixels.empty() && width > 0 && height > 0; }
+};
+
 struct Material {
     uint32_t           id;     // Unique material identifier
     std::string        name;   // Material name (from glTF or user-defined)
     MaterialProperties props;  // Visual and rendering properties
 
-    // Texture asset paths (not GPU resources)
+    // Texture asset paths (for external textures)
     std::string baseColorTexture;
     std::string normalMapTexture;
     std::string metallicRoughnessTexture;
     std::string emissiveTexture;
 
+    // Embedded texture data (for GLB files with embedded textures)
+    EmbeddedTexture embeddedBaseColor;
+    EmbeddedTexture embeddedNormalMap;
+    EmbeddedTexture embeddedMetallicRoughness;
+    EmbeddedTexture embeddedEmissive;
+
+    // Mesh association (which mesh/primitive this material belongs to)
+    int32_t meshIndex      = -1;  // glTF mesh index (-1 if not associated)
+    int32_t primitiveIndex = -1;  // Primitive within the mesh
+
     // Index range for rendering (which part of mesh uses this material)
     uint32_t indexStart = 0;
     uint32_t indexCount = 0;
+
+    // Helper to check if we have a base color texture (path or embedded)
+    bool hasBaseColorTexture() const {
+        return !baseColorTexture.empty() || embeddedBaseColor.isValid();
+    }
 };
+
+struct MaterialDispatcher {
+    std::string name;
+    std::function<bool(const Material&)> dispatchFunction;
+    std::map<std::string, std::function<bool(const Material&)>> textureChecks;
+
+    bool dispatch(const Material& material) {
+        return dispatchFunction(material);
+    }
+
+    bool checkTexture(const std::string& name, const Material& material) {
+        auto it = textureChecks.find(name);
+        return it != textureChecks.end() ? it->second(material) : false;
+    }
+
+    void addTextureCheck(const std::string& name, std::function<bool(const Material&)> checkFunc) {
+        textureChecks[name] = checkFunc;
+    }
+    
+    MaterialDispatcher(const Material& material){//lambdas to check if empty
+        textureChecks["baseColor"] = [](const Material& material) { return material.baseColorTexture.empty(); };
+        textureChecks["normalMap"] = [](const Material& material) { return material.normalMapTexture.empty(); };
+        textureChecks["metallicRoughness"] = [](const Material& material) { return material.metallicRoughnessTexture.empty(); };
+        textureChecks["emissive"] = [](const Material& material) { return material.emissiveTexture.empty(); };
+    }
+};
+
 
 /**
  * @brief Vulkan-specific material resources
@@ -162,6 +219,14 @@ public:
     void initDescriptorSupport(VkDescriptorSetLayout layout, VkDescriptorPool pool, uint32_t maxFramesInFlight);
 
     /**
+     * @brief Create descriptor sets for all existing materials
+     *
+     * Call this after initDescriptorSupport() to create descriptor sets
+     * for materials that were created before descriptor support was initialized.
+     */
+    void createDescriptorSetsForExistingMaterials();
+
+    /**
      * @brief Get descriptor set for a material
      *
      * @param materialId Material ID
@@ -190,14 +255,15 @@ private:
 
     // Helper methods for texture loading
     TextureHandle loadTexture(const std::string& path);
+    TextureHandle loadTextureFromData(const EmbeddedTexture& embeddedTex);
     void          createTextureImage(const unsigned char* pixels, const int width, const int height, const int channels,
                                      TextureHandle& outTexture);
     void          createTextureImageView(TextureHandle& texture);
     void          createTextureSampler(TextureHandle& texture);
     void          destroyTextureHandle(TextureHandle& texture);
     void createImage(const uint32_t width, const uint32_t height, const VkFormat format, const VkImageTiling tiling,
-                     const VkImageUsageFlags usage, const VkMemoryPropertyFlags properties, const VkImage& image,
-                     const VkDeviceMemory& imageMemory);
+                     const VkImageUsageFlags usage, const VkMemoryPropertyFlags properties, VkImage& image,
+                     VkDeviceMemory& imageMemory);
 
     void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
 

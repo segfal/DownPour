@@ -4,7 +4,9 @@
 
 #include <iostream>
 #include <stdexcept>
-
+#include <vulkan/vulkan.h>
+#include <functional>
+#include <map>
 namespace DownPour {
 
 MaterialManager::MaterialManager(VkDevice device, VkPhysicalDevice physicalDevice, VkCommandPool commandPool,
@@ -19,28 +21,40 @@ MaterialManager::MaterialManager(VkDevice device, VkPhysicalDevice physicalDevic
     std::cout << "MaterialManager initialized\n";
 }
 
-MaterialManager::~MaterialManager() {
-    // Cleanup is explicit via cleanup() call
-}
+MaterialManager::~MaterialManager() {}
 
 uint32_t MaterialManager::createMaterial(const Material& material) {
     uint32_t id = nextMaterialId++;
 
     VulkanMaterialResources gpuResources;
 
-    // Load base color texture if provided
-    if (!material.baseColorTexture.empty())
+    // Load base color texture (prefer embedded, fallback to file path)
+    if (material.embeddedBaseColor.isValid()) {
+        gpuResources.baseColor = loadTextureFromData(material.embeddedBaseColor);
+    } else if (!material.baseColorTexture.empty()) {
         gpuResources.baseColor = loadTexture(material.baseColorTexture);
+    }
 
-    // Load optional PBR textures
-    if (!material.normalMapTexture.empty() && material.props.hasNormalMap)
+    // Load normal map
+    if (material.embeddedNormalMap.isValid()) {
+        gpuResources.normalMap = loadTextureFromData(material.embeddedNormalMap);
+    } else if (!material.normalMapTexture.empty()) {
         gpuResources.normalMap = loadTexture(material.normalMapTexture);
+    }
 
-    if (!material.metallicRoughnessTexture.empty() && material.props.hasMetallicRoughness)
+    // Load metallic roughness
+    if (material.embeddedMetallicRoughness.isValid()) {
+        gpuResources.metallicRoughness = loadTextureFromData(material.embeddedMetallicRoughness);
+    } else if (!material.metallicRoughnessTexture.empty()) {
         gpuResources.metallicRoughness = loadTexture(material.metallicRoughnessTexture);
+    }
 
-    if (!material.emissiveTexture.empty() && material.props.hasEmissive)
+    // Load emissive
+    if (material.embeddedEmissive.isValid()) {
+        gpuResources.emissive = loadTextureFromData(material.embeddedEmissive);
+    } else if (!material.emissiveTexture.empty()) {
         gpuResources.emissive = loadTexture(material.emissiveTexture);
+    }
 
     // Create descriptor sets if descriptor support is initialized
     if (descriptorSetLayout != VK_NULL_HANDLE && descriptorPool != VK_NULL_HANDLE && maxFramesInFlight > 0) {
@@ -91,6 +105,72 @@ void MaterialManager::initDescriptorSupport(VkDescriptorSetLayout layout, VkDesc
     descriptorSetLayout     = layout;
     descriptorPool          = pool;
     this->maxFramesInFlight = maxFramesInFlight;
+}
+
+void MaterialManager::createDescriptorSetsForExistingMaterials() {
+    if (descriptorSetLayout == VK_NULL_HANDLE || descriptorPool == VK_NULL_HANDLE || maxFramesInFlight == 0) {
+        std::cerr << "MaterialManager: Descriptor support not initialized" << std::endl;
+        return;
+    }
+
+    size_t createdCount = 0;
+    size_t skippedNoTexture = 0;
+    size_t skippedAlreadyHas = 0;
+
+    // Iterate through all existing materials and create descriptor sets
+    for (auto& [id, gpuResources] : resources) {
+        // Skip if descriptor set already exists
+        if (gpuResources.descriptorSet != VK_NULL_HANDLE) {
+            skippedAlreadyHas++;
+            continue;
+        }
+
+        // Skip if no base color texture (nothing to bind)
+        if (!gpuResources.baseColor.isValid()) {
+            skippedNoTexture++;
+            continue;
+        }
+
+        // Allocate descriptor sets for all frames
+        std::vector<VkDescriptorSet>        matDescriptorSets(maxFramesInFlight);
+        std::vector<VkDescriptorSetLayout>  layouts(maxFramesInFlight, descriptorSetLayout);
+        VkDescriptorSetAllocateInfo         allocInfo{};
+        allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool     = descriptorPool;
+        allocInfo.descriptorSetCount = maxFramesInFlight;
+        allocInfo.pSetLayouts        = layouts.data();
+
+        if (vkAllocateDescriptorSets(device, &allocInfo, matDescriptorSets.data()) != VK_SUCCESS) {
+            std::cerr << "Failed to allocate descriptor sets for material " << id << std::endl;
+            continue;
+        }
+
+        // Update all descriptor sets with texture bindings
+        for (uint32_t frame = 0; frame < maxFramesInFlight; frame++) {
+            VkDescriptorImageInfo imageInfo{};
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView   = gpuResources.baseColor.view;
+            imageInfo.sampler     = gpuResources.baseColor.sampler;
+
+            VkWriteDescriptorSet descriptorWrite{};
+            descriptorWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet          = matDescriptorSets[frame];
+            descriptorWrite.dstBinding      = 0;
+            descriptorWrite.dstArrayElement = 0;
+            descriptorWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.pImageInfo      = &imageInfo;
+
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+        }
+
+        gpuResources.descriptorSet = matDescriptorSets[0];
+        createdCount++;
+    }
+
+    std::cout << "MaterialManager: Created " << createdCount << " descriptor sets, "
+              << "skipped " << skippedNoTexture << " (no texture), "
+              << "skipped " << skippedAlreadyHas << " (already has)" << std::endl;
 }
 
 VkDescriptorSet MaterialManager::getDescriptorSet(uint32_t materialId, uint32_t frameIndex) const {
@@ -160,6 +240,26 @@ TextureHandle MaterialManager::loadTexture(const std::string& path) {
     }
 
     stbi_image_free(pixels);
+    return texture;
+}
+
+TextureHandle MaterialManager::loadTextureFromData(const EmbeddedTexture& embeddedTex) {
+    TextureHandle texture;
+
+    if (!embeddedTex.isValid()) {
+        return texture;  // Return invalid handle
+    }
+
+    try {
+        // Embedded textures from tinygltf are already decoded as RGBA
+        createTextureImage(embeddedTex.pixels.data(), embeddedTex.width, embeddedTex.height, 4, texture);
+        createTextureImageView(texture);
+        createTextureSampler(texture);
+    } catch (const std::exception& e) {
+        std::cerr << "Error loading embedded texture: " << e.what() << "\n";
+        destroyTextureHandle(texture);
+    }
+
     return texture;
 }
 
@@ -271,8 +371,8 @@ void MaterialManager::destroyTextureHandle(TextureHandle& texture) {
 
 void MaterialManager::createImage(const uint32_t width, const uint32_t height, const VkFormat format,
                                   const VkImageTiling tiling, const VkImageUsageFlags usage,
-                                  const VkMemoryPropertyFlags properties, const VkImage& image,
-                                  const VkDeviceMemory& imageMemory) {
+                                  const VkMemoryPropertyFlags properties, VkImage& image,
+                                  VkDeviceMemory& imageMemory) {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType     = VK_IMAGE_TYPE_2D;
@@ -421,4 +521,4 @@ uint32_t MaterialManager::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFl
     throw std::runtime_error("Failed to find suitable memory type");
 }
 
-}  // namespace DownPour
+}  

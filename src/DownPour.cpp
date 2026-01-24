@@ -107,8 +107,6 @@ void Application::initVulkan() {
 
     // Set initial camera to cockpit view
     updateCameraForCockpit();
-
-
 }
 
 void Application::cleanup() {
@@ -174,7 +172,11 @@ void Application::cleanup() {
     roadMaterialIds.clear();
 
     // Clean up car resources
-    carModel.cleanup(device);
+    if (carModelPtr) {
+        carModelPtr->cleanup(device);
+        delete carModelPtr;
+        carModelPtr = nullptr;
+    }
     if (carPipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, carPipeline, nullptr);
     }
@@ -207,7 +209,11 @@ void Application::cleanup() {
     }
 
     // Clean up road model BEFORE destroying device
-    roadModel.cleanup(device);
+    if (roadModelPtr) {
+        roadModelPtr->cleanup(device);
+        delete roadModelPtr;
+        roadModelPtr = nullptr;
+    }
     if (worldPipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, worldPipeline, nullptr);
     }
@@ -887,9 +893,9 @@ void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, 
     vkCmdDraw(cmd, 36, 1, 0, 0);
 
     // 2. Draw road (model-based)
-    if (roadModel.getIndexCount() > 0) {
-        const auto&  roadMaterials       = roadModel.getMaterials();
-        VkBuffer     roadVertexBuffers[] = {roadModel.getVertexBuffer()};
+    if (roadModelPtr->getIndexCount() > 0) {
+        const auto&  roadMaterials       = roadModelPtr->getMaterials();
+        VkBuffer     roadVertexBuffers[] = {roadModelPtr->getVertexBuffer()};
         VkDeviceSize roadOffsets[]       = {0};
 
         if (!roadMaterials.empty()) {
@@ -897,12 +903,12 @@ void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, 
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipeline);
 
             // Push road model matrix
-            glm::mat4 roadMatrix = roadModel.getModelMatrix();
+            glm::mat4 roadMatrix = roadModelPtr->getModelMatrix();
             vkCmdPushConstants(cmd, carPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &roadMatrix);
 
             // Bind vertex and index buffers
             vkCmdBindVertexBuffers(cmd, 0, 1, roadVertexBuffers, roadOffsets);
-            vkCmdBindIndexBuffer(cmd, roadModel.getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindIndexBuffer(cmd, roadModelPtr->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
             // Render each material
             for (size_t i = 0; i < roadMaterials.size(); i++) {
@@ -926,71 +932,93 @@ void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, 
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipelineLayout, 0, 1,
                                     &descriptorSets[frameIndex], 0, nullptr);
             vkCmdBindVertexBuffers(cmd, 0, 1, roadVertexBuffers, roadOffsets);
-            vkCmdBindIndexBuffer(cmd, roadModel.getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
-            vkCmdDrawIndexed(cmd, roadModel.getIndexCount(), 1, 0, 0, 0);
+            vkCmdBindIndexBuffer(cmd, roadModelPtr->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdDrawIndexed(cmd, roadModelPtr->getIndexCount(), 1, 0, 0, 0);
         }
     }
 
-    // 3. Draw car - TWO PASSES: opaque first, then transparent
-    if (carModel.getIndexCount() > 0) {
-        const auto& materials = carModel.getMaterials();
+    // 3. Draw car using scene graph (hierarchical rendering)
+    Scene* activeScene = sceneManager.getActiveScene();
 
-        if (!materials.empty()) {
-            // Bind vertex and index buffers ONCE (same for all materials)
-            VkBuffer     carVertexBuffers[] = {carModel.getVertexBuffer()};
-            VkDeviceSize carOffsets[]       = {0};
-            vkCmdBindVertexBuffers(cmd, 0, 1, carVertexBuffers, carOffsets);
-            vkCmdBindIndexBuffer(cmd, carModel.getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+    if (activeScene) {
+        // Update all transforms in the scene
+        activeScene->updateTransforms();
 
-            // Push model matrix ONCE (same for all materials)
-            glm::mat4 modelMatrix = carModel.getModelMatrix();
-            vkCmdPushConstants(cmd, carPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &modelMatrix);
+        // Get render batches (grouped by model and transparency)
+        auto batches = activeScene->getRenderBatches();
 
-            // PASS 1: Draw OPAQUE materials
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipeline);
+        // DEBUG: Track rendering statistics
+        static bool debugPrinted        = false;
+        int         totalNodes          = 0;
+        int         skippedNoDescriptor = 0;
+        int         drawnNodes          = 0;
 
-            for (size_t matIdx = 0; matIdx < materials.size(); matIdx++) {
-                const auto& material = materials[matIdx];
+        for (const auto& batch : batches) {
+            if (!batch.model || batch.nodes.empty())
+                continue;
 
-                // Skip transparent materials in this pass
-                if (material.props.isTransparent)
+            // Bind appropriate pipeline based on transparency
+            VkPipeline pipeline = batch.isTransparent ? carTransparentPipeline : carPipeline;
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+            // Bind model's vertex and index buffers ONCE per batch
+            VkBuffer     vertexBuffers[] = {batch.model->getVertexBuffer()};
+            VkDeviceSize offsets[]       = {0};
+            vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+            vkCmdBindIndexBuffer(cmd, batch.model->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+            // Draw each node instance with its own world transform
+            for (SceneNode* node : batch.nodes) {
+                totalNodes++;
+                if (!node || !node->renderData || !node->renderData->isVisible)
                     continue;
 
-                // Get descriptor set from MaterialManager
-                uint32_t        gpuId         = carMaterialIds[matIdx];
-                VkDescriptorSet matDescriptor = materialManager->getDescriptorSet(gpuId, frameIndex);
+                // Push THIS NODE's world transform (includes parent transforms)
+                vkCmdPushConstants(cmd, carPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4),
+                                   &node->worldTransform);
 
-                // Bind descriptor sets for this material
+                // Bind material descriptor set
+                uint32_t        matId         = node->renderData->materialId;
+                VkDescriptorSet matDescriptor = materialManager->getDescriptorSet(matId, frameIndex);
+
+                // Skip nodes with no descriptor set (materials without textures)
+                if (matDescriptor == VK_NULL_HANDLE) {
+                    skippedNoDescriptor++;
+                    continue;
+                }
+
                 std::vector<VkDescriptorSet> sets = {descriptorSets[frameIndex], matDescriptor};
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipelineLayout, 0,
                                         static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
 
-                // Draw this material's index range
-                vkCmdDrawIndexed(cmd, material.indexCount, 1, material.indexStart, 0, 0);
+                // Draw this node's geometry
+                vkCmdDrawIndexed(cmd, node->renderData->indexCount, 1, node->renderData->indexStart, 0, 0);
+                drawnNodes++;
+            }
+        }
+
+        // Print debug info once
+        if (!debugPrinted) {
+            std::cout << "\n=== RENDER DEBUG ===" << std::endl;
+            std::cout << "Batches: " << batches.size() << std::endl;
+            std::cout << "Total nodes processed: " << totalNodes << std::endl;
+            std::cout << "Skipped (no descriptor): " << skippedNoDescriptor << std::endl;
+            std::cout << "Actually drawn: " << drawnNodes << std::endl;
+
+            // Print first batch's first node transform for debugging
+            if (!batches.empty() && !batches[0].nodes.empty()) {
+                SceneNode* firstNode = batches[0].nodes[0];
+                if (firstNode) {
+                    glm::mat4 wt = firstNode->worldTransform;
+                    std::cout << "First node worldTransform diagonal: (" << wt[0][0] << ", " << wt[1][1] << ", "
+                              << wt[2][2] << ", " << wt[3][3] << ")" << std::endl;
+                    std::cout << "First node worldTransform position: (" << wt[3][0] << ", " << wt[3][1] << ", "
+                              << wt[3][2] << ")" << std::endl;
+                }
             }
 
-            // PASS 2: Draw TRANSPARENT materials
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carTransparentPipeline);
-
-            for (size_t matIdx = 0; matIdx < materials.size(); matIdx++) {
-                const auto& material = materials[matIdx];
-
-                // Only draw transparent materials in this pass
-                if (!material.props.isTransparent)
-                    continue;
-
-                // Get descriptor set from MaterialManager
-                uint32_t        gpuId         = carMaterialIds[matIdx];
-                VkDescriptorSet matDescriptor = materialManager->getDescriptorSet(gpuId, frameIndex);
-
-                // Bind descriptor sets for this material
-                std::vector<VkDescriptorSet> sets = {descriptorSets[frameIndex], matDescriptor};
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipelineLayout, 0,
-                                        static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
-
-                // Draw this material's index range
-                vkCmdDrawIndexed(cmd, material.indexCount, 1, material.indexStart, 0, 0);
-            }
+            std::cout << "===================\n" << std::endl;
+            debugPrinted = true;
         }
     }
 
@@ -1398,7 +1426,7 @@ void Application::createWorldPipeline() {
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth               = 1.0f;
-    rasterizer.cullMode                = VK_CULL_MODE_BACK_BIT;  // Enable backface culling
+    rasterizer.cullMode                = VK_CULL_MODE_NONE;  // Disable culling to debug visibility
     rasterizer.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable         = VK_FALSE;
 
@@ -1464,10 +1492,12 @@ void Application::createWorldPipeline() {
 }
 
 void Application::loadCarModel() {
-    carModel.loadFromFile("assets/models/bmw.glb", device, physicalDevice, commandPool, graphicsQueue);
+    // Load model geometry (keep as pointer for scene system)
+    carModelPtr = new Model();
+    carModelPtr->loadFromFile("assets/models/bmw/bmw.gltf", device, physicalDevice, commandPool, graphicsQueue);
 
     // Get UNSCALED model dimensions
-    glm::vec3 dimensions = carModel.getDimensions();
+    glm::vec3 dimensions = carModelPtr->getDimensions();
 
     std::cout << "\n=== CAR SCALE CALCULATION ===" << std::endl;
     std::cout << "Original model dimensions: " << dimensions.x << " x " << dimensions.y << " x " << dimensions.z
@@ -1480,8 +1510,8 @@ void Application::loadCarModel() {
     carScaleFactor = targetLength / dimensions.z;
 
     // Print bounding box info for debugging
-    glm::vec3 minB = carModel.getMinBounds();
-    glm::vec3 maxB = carModel.getMaxBounds();
+    glm::vec3 minB = carModelPtr->getMinBounds();
+    glm::vec3 maxB = carModelPtr->getMaxBounds();
 
     // Calculate a better starting cockpit position
     // Driver position is typically:
@@ -1489,8 +1519,8 @@ void Application::loadCarModel() {
     // - Y: about 60% forward from rear (in model space before rotation)
     // - Z: about 80% of height (eye level)
 
-    glm::vec3 dims = carModel.getDimensions();
-    glm::vec3 min  = carModel.getMinBounds();
+    glm::vec3 dims = carModelPtr->getDimensions();
+    glm::vec3 min  = carModelPtr->getMinBounds();
 
     // In model space (before 90° rotation):
     // Y axis is what becomes "forward" in world space after rotation
@@ -1500,64 +1530,111 @@ void Application::loadCarModel() {
     float suggestedY = min.y + dims.y * 0.4f;   // 40% from front (60% from back)
     float suggestedZ = min.z + dims.z * 0.75f;  // 75% of height for eye level
 
-    // Query and store car part meshes for animation
-    std::cout << "\n=== SEARCHING FOR CAR PARTS ===" << std::endl;
-
-    auto meshNames = carModel.getMeshNames();
-    std::cout << "Available meshes in car model: " << meshNames.size() << std::endl;
-    for (const auto& name : meshNames) {
-        std::cout << "  - " << name << std::endl;
-    }
-
-    // Search for steering wheel parts (try exact match, then with primitive suffix)
-    if (carModel.getMeshIndexRange("steering_wheel_front", carParts.steeringWheelFrontStart,
-                                   carParts.steeringWheelFrontCount)) {
-        std::cout << "Found steering_wheel_front" << std::endl;
-        carParts.hasSteeringWheel = true;
-    } else if (carModel.getMeshIndexRange("steering_wheel_front_primitive0", carParts.steeringWheelFrontStart,
-                                          carParts.steeringWheelFrontCount)) {
-        std::cout << "Found steering_wheel_front_primitive0" << std::endl;
-        carParts.hasSteeringWheel = true;
-    }
-
-    if (carModel.getMeshIndexRange("steering_wheel_back", carParts.steeringWheelBackStart,
-                                   carParts.steeringWheelBackCount)) {
-        std::cout << "Found steering_wheel_back" << std::endl;
-        carParts.hasSteeringWheel = true;
-    } else if (carModel.getMeshIndexRange("steering_wheel_back_primitive0", carParts.steeringWheelBackStart,
-                                          carParts.steeringWheelBackCount)) {
-        std::cout << "Found steering_wheel_back_primitive0" << std::endl;
-        carParts.hasSteeringWheel = true;
-    }
-
-    // Search for wipers
-    if (carModel.getMeshIndexRange("left_wiper", carParts.leftWiperStart, carParts.leftWiperCount)) {
-        std::cout << "Found left_wiper" << std::endl;
-        carParts.hasWipers = true;
-    }
-
-    if (carModel.getMeshIndexRange("right_wiper", carParts.rightWiperStart, carParts.rightWiperCount)) {
-        std::cout << "Found right_wiper" << std::endl;
-        carParts.hasWipers = true;
-    }
-
-    std::cout << "Steering wheel found: " << (carParts.hasSteeringWheel ? "YES" : "NO") << std::endl;
-    std::cout << "Wipers found: " << (carParts.hasWipers ? "YES" : "NO") << std::endl;
-    std::cout << "================================\n" << std::endl;
-
     // Load GPU resources for car materials
-    const auto& carMaterials = carModel.getMaterials();
+    const auto& carMaterials = carModelPtr->getMaterials();
     std::cout << "\n=== LOADING CAR MATERIALS ===" << std::endl;
     for (size_t i = 0; i < carMaterials.size(); i++) {
         uint32_t gpuId    = materialManager->createMaterial(carMaterials[i]);
         carMaterialIds[i] = gpuId;
     }
     std::cout << "Loaded " << carMaterials.size() << " car materials" << std::endl;
+
+    // NEW: Build scene from hierarchy
+    std::cout << "\n=== BUILDING SCENE GRAPH ===" << std::endl;
+    Scene* drivingScene = sceneManager.createScene("driving");
+
+    std::vector<NodeHandle> carRootNodes = SceneBuilder::buildFromModel(drivingScene, carModelPtr, carMaterialIds);
+    std::cout << "Created " << drivingScene->getNodeCount() << " scene nodes" << std::endl;
+    std::cout << "Number of glTF root nodes: " << carRootNodes.size() << std::endl;
+
+    // NEW: Create entity for player car with a WRAPPER ROOT
+    // This ensures all glTF roots get the same transform when we move/scale the car
+    playerCar = sceneManager.createEntity<CarEntity>("player_car", "driving");
+
+    // Apply config from CarEntity
+    auto& carConfig  = playerCar->getConfig();
+    carConfig.length = targetLength;
+
+    // Create a wrapper root node that will be the entity's root
+    NodeHandle carWrapperRoot = drivingScene->createNode("car_wrapper_root");
+    playerCar->addNode(carWrapperRoot);  // This becomes the entity root
+
+    // Reparent all glTF root nodes under the wrapper
+    for (size_t i = 0; i < carRootNodes.size(); i++) {
+        drivingScene->setParent(carRootNodes[i], carWrapperRoot);
+        playerCar->addNode(carRootNodes[i], "gltf_root_" + std::to_string(i));
+    }
+
+    std::cout << "Entity created with wrapper root and " << carRootNodes.size() << " glTF roots reparented"
+              << std::endl;
+
+    // NEW: Find and tag specific parts for animation
+    auto meshNames = carModelPtr->getMeshNames();
+    std::cout << "\n=== SEARCHING FOR CAR PARTS ===" << std::endl;
+    std::cout << "Available meshes: " << meshNames.size() << std::endl;
+
+    // Find wheels
+    if (auto wheel = drivingScene->findNode("3DWheel Front L_04"); wheel.isValid()) {
+        playerCar->addNode(wheel, CarEntity::ROLE_WHEEL_FL);
+        std::cout << "Found wheel_FL" << std::endl;
+    }
+    if (auto wheel = drivingScene->findNode("3DWheel Front R_04"); wheel.isValid()) {
+        playerCar->addNode(wheel, CarEntity::ROLE_WHEEL_FR);
+        std::cout << "Found wheel_FR" << std::endl;
+    }
+    if (auto wheel = drivingScene->findNode("3DWheel Rear L_04"); wheel.isValid()) {
+        playerCar->addNode(wheel, CarEntity::ROLE_WHEEL_RL);
+        std::cout << "Found wheel_RL" << std::endl;
+    }
+    if (auto wheel = drivingScene->findNode("3DWheel Rear R_04"); wheel.isValid()) {
+        playerCar->addNode(wheel, CarEntity::ROLE_WHEEL_RR);
+        std::cout << "Found wheel_RR" << std::endl;
+    }
+
+    // Find steering wheel
+    if (auto steeringWheel = drivingScene->findNode("steering_wheel_back"); steeringWheel.isValid()) {
+        playerCar->addNode(steeringWheel, CarEntity::ROLE_STEERING_WHEEL);
+        std::cout << "Found steering_wheel" << std::endl;
+        carParts.hasSteeringWheel = true;
+    }
+
+    // Find wipers
+    if (auto wiper = drivingScene->findNode("left_wiper"); wiper.isValid()) {
+        playerCar->addNode(wiper, CarEntity::ROLE_WIPER_LEFT);
+        std::cout << "Found left_wiper" << std::endl;
+        carParts.hasWipers = true;
+    }
+    if (auto wiper = drivingScene->findNode("right_wiper"); wiper.isValid()) {
+        playerCar->addNode(wiper, CarEntity::ROLE_WIPER_RIGHT);
+        std::cout << "Found right_wiper" << std::endl;
+    }
+
+    // Find extra parts (lights, hood, doors)
+    // Note: These names are based on our grep search
+    if (auto hood = drivingScene->findNode("m4car_hood1"); hood.isValid()) {
+        playerCar->addNode(hood, CarEntity::ROLE_HOOD);
+    }
+    if (auto doorL = drivingScene->findNode("m4:left_door_Mesh_2_car_body"); doorL.isValid()) {
+        playerCar->addNode(doorL, CarEntity::ROLE_DOOR_L);
+    }
+    // right door node name might be slightly different or nested, using what we saw in GLTF for now
+    if (auto doorR = drivingScene->findNode("m4:right_door_Mesh_3_car_interior"); doorR.isValid()) {
+        playerCar->addNode(doorR, CarEntity::ROLE_DOOR_R);
+    }
+
+    // Attempt to finding emissive parts
+    if (auto headlights = drivingScene->findNode("m4car_emissive1"); headlights.isValid()) {
+        playerCar->addNode(headlights, CarEntity::ROLE_HEADLIGHTS);
+    }
+
+    sceneManager.setActiveScene("driving");
+    std::cout << "Scene graph ready!" << std::endl;
     std::cout << "================================\n" << std::endl;
 }
 
 void Application::loadRoadModel() {
-    roadModel.loadFromFile("assets/models/road.glb", device, physicalDevice, commandPool, graphicsQueue);
+    roadModelPtr = new Model();
+    roadModelPtr->loadFromFile("assets/models/road.glb", device, physicalDevice, commandPool, graphicsQueue);
 
     // Position road at ground level (Y=0)
     glm::mat4 roadTransform = glm::mat4(1.0f);
@@ -1565,16 +1642,26 @@ void Application::loadRoadModel() {
 
     // May need scaling depending on road.glb dimensions
     // For now, assume road.glb is already at correct scale
-    roadModel.setModelMatrix(roadTransform);
+    roadModelPtr->setModelMatrix(roadTransform);
 
     // Load GPU resources for road materials
-    const auto& roadMaterials = roadModel.getMaterials();
+    const auto& roadMaterials = roadModelPtr->getMaterials();
     std::cout << "\n=== LOADING ROAD MATERIALS ===" << std::endl;
     for (size_t i = 0; i < roadMaterials.size(); i++) {
         uint32_t gpuId     = materialManager->createMaterial(roadMaterials[i]);
         roadMaterialIds[i] = gpuId;
     }
     std::cout << "Loaded " << roadMaterials.size() << " road materials" << std::endl;
+
+    // Create RoadEntity
+    // Note: We don't store a pointer in Application class yet, but it's managed by SceneManager
+    // We assume 'driving' scene exists since loadCarModel usually runs first or around same time
+    if (sceneManager.getScene("driving")) {
+        RoadEntity* roadEntity = sceneManager.createEntity<RoadEntity>("road", "driving");
+        // We could attach the road model nodes here if we had them as SceneNodes
+        // For now, the road is drawn via legacy loop in drawFrame, but we have the Entity for logic
+    }
+
     std::cout << "================================\n" << std::endl;
 }
 
@@ -1851,7 +1938,7 @@ void Application::createCarTransparentPipeline() {
 }
 
 void Application::createCarDescriptorSets() {
-    const auto& materials = carModel.getMaterials();
+    const auto& materials = carModelPtr->getMaterials();
     if (materials.empty()) {
         std::cout << "No car materials to create descriptor sets for" << std::endl;
         return;
@@ -1873,8 +1960,11 @@ void Application::createCarDescriptorSets() {
     }
 
     // Initialize MaterialManager descriptor support
-    // MaterialManager will create and manage descriptor sets for materials
+    // MaterialManager will use these to create descriptor sets for materials
     materialManager->initDescriptorSupport(carDescriptorSetLayout, carDescriptorPool, MAX_FRAMES_IN_FLIGHT);
+
+    // Create descriptor sets for materials that were loaded before descriptor support was initialized
+    materialManager->createDescriptorSetsForExistingMaterials();
 
     std::cout << "Car descriptor pool and MaterialManager initialized" << std::endl;
 }
@@ -1922,7 +2012,36 @@ void Application::updateCarPhysics(float deltaTime) {
     modelMatrix = glm::rotate(modelMatrix, glm::radians(270.0f), glm::vec3(1.0f, 0.0f, 0.0f));
     // Apply calculated scale for realistic size
     modelMatrix = glm::scale(modelMatrix, glm::vec3(carScaleFactor, carScaleFactor, carScaleFactor));
-    carModel.setModelMatrix(modelMatrix);
+    carModelPtr->setModelMatrix(modelMatrix);
+
+    // NEW: Update scene entity transform
+    if (playerCar) {
+        // Apply vertical offset relative to the rotation correction
+        // The car model has an internal offset that places it at Y=10.72 when at local (0,0,0)
+        // We subtract this to bring it to the ground.
+        glm::vec3 visualPosition = carPosition;
+        visualPosition.y -= 10.72f;
+
+        playerCar->setPosition(visualPosition);
+
+        // Combine rotations: 270° X-axis (model orientation fix) + Y-axis (steering)
+        glm::quat xRotation        = glm::angleAxis(glm::radians(270.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::quat yRotation        = glm::angleAxis(glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::quat combinedRotation = yRotation * xRotation;  // Apply X rotation first, then Y
+
+        playerCar->setRotation(combinedRotation);
+        playerCar->setScale(glm::vec3(carScaleFactor));
+
+        // Animate wheels based on velocity
+        static float wheelRotationAccum = 0.0f;
+        wheelRotationAccum += carVelocity * deltaTime * 10.0f;  // Adjust multiplier for visual appearance
+        glm::quat wheelRot = glm::angleAxis(wheelRotationAccum, glm::vec3(1.0f, 0.0f, 0.0f));
+
+        playerCar->animateRotation("wheel_FL", wheelRot);
+        playerCar->animateRotation("wheel_FR", wheelRot);
+        playerCar->animateRotation("wheel_RL", wheelRot);
+        playerCar->animateRotation("wheel_RR", wheelRot);
+    }
 
     // Update steering wheel rotation based on A/D keys
     if (carParts.hasSteeringWheel) {
@@ -1953,7 +2072,17 @@ void Application::updateCarPhysics(float deltaTime) {
                     steeringWheelRotation = 0.0f;
             }
         }
+
+        // NEW: Animate steering wheel in scene entity
+        if (playerCar) {
+            // Steering wheel rotates around Z axis
+            glm::quat steeringRot = glm::angleAxis(glm::radians(steeringWheelRotation), glm::vec3(0.0f, 0.0f, 1.0f));
+            playerCar->animateRotation("steering_wheel", steeringRot);
+        }
     }
+
+    // Update scene manager
+    sceneManager.update(deltaTime);
 }
 
 void Application::updateCameraForCockpit() {
@@ -1969,13 +2098,17 @@ void Application::updateCameraForCockpit() {
 
     glm::vec3 rotatedOffset = glm::vec3(rotationMatrix * glm::vec4(cockpitOffset, 0.0f));
 
-    // Update camera position to be inside the car at cockpit location
-    glm::vec3 cockpitPosition =
-        carPosition + rotatedOffset +
-        glm::vec3(0.0f, 0.4f, -0.15f);  // x is forward and backward, y is up and down, z is left and right
-    camera.setPosition(cockpitPosition);
+    // Chase Camera (Behind and Above)
+    // Position camera 6 meters behind (-Z) and 2.5 meters above the car
+    // This ensures we see the exterior and aren't clipped inside
+    glm::vec3 chasePosition = carPosition + glm::vec3(0.0f, 2.5f, -6.0f);
 
-    // Debug: Print camera AND car position (only once at startup, not every frame)
+    camera.setPosition(chasePosition);
+
+    // Face the car (looking +Z)
+    camera.setYaw(90.0f);
+    camera.setPitch(-15.0f);  // Look down slightly at the car
+
     static bool printedOnce = false;
     if (!printedOnce) {
         std::cout << "\n=== CAMERA & CAR DEBUG ===" << std::endl;
@@ -1986,17 +2119,13 @@ void Application::updateCameraForCockpit() {
                   << cockpitOffset.z << ")" << std::endl;
         std::cout << "Rotated offset: (" << rotatedOffset.x << ", " << rotatedOffset.y << ", " << rotatedOffset.z << ")"
                   << std::endl;
-        std::cout << "Final camera position: (" << cockpitPosition.x << ", " << cockpitPosition.y << ", "
-                  << cockpitPosition.z << ")" << std::endl;
-        std::cout << "Camera is " << (cockpitPosition.y >= 0 ? "ABOVE" : "BELOW") << " ground (Y=" << cockpitPosition.y
+        std::cout << "Final camera position: (" << chasePosition.x << ", " << chasePosition.y << ", " << chasePosition.z
+                  << ")" << std::endl;
+        std::cout << "Camera is " << (chasePosition.y >= 0 ? "ABOVE" : "BELOW") << " ground (Y=" << chasePosition.y
                   << ")" << std::endl;
         std::cout << "===========================\n" << std::endl;
         printedOnce = true;
     }
-
-    // Set camera to look forward (pitch = 0 is looking straight ahead)
-    // The 90° model rotation is already accounted for in the cockpit offset transformation
-    camera.setPitch(0.0f);  // Look straight forward
 }
 
 void Application::createWindshieldPipeline() {
@@ -2183,7 +2312,7 @@ void Application::updateDebugMarkers() {
     std::vector<DebugVertex> vertices;
 
     // Get car dimensions in world space
-    glm::vec3 carDimensions = carModel.getDimensions() * carScaleFactor;
+    glm::vec3 carDimensions = carModelPtr->getDimensions() * carScaleFactor;
 
     // Calculate rotation matrix (same as car model)
     glm::mat4 rotationMatrix = glm::mat4(1.0f);
@@ -2207,8 +2336,8 @@ void Application::updateDebugMarkers() {
     addLine(origin, origin + zAxis, glm::vec3(0.0f, 0.0f, 1.0f));  // Z = BLUE
 
     // 2. Bounding box corners - YELLOW
-    glm::vec3 bbMin = carModel.getMinBounds() * carScaleFactor;
-    glm::vec3 bbMax = carModel.getMaxBounds() * carScaleFactor;
+    glm::vec3 bbMin = carModelPtr->getMinBounds() * carScaleFactor;
+    glm::vec3 bbMax = carModelPtr->getMaxBounds() * carScaleFactor;
 
     // Transform bounding box corners to world space
     auto transformPoint = [&](glm::vec3 localPoint) -> glm::vec3 {
