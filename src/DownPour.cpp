@@ -3,7 +3,6 @@
 #include "vulkan/VulkanTypes.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -109,17 +108,7 @@ void Application::initVulkan() {
     // Set initial camera to cockpit view
     updateCameraForCockpit();
 
-    std::cout << "\n=== CONTROLS ===" << std::endl;
-    std::cout << "Press 'R' to toggle RAIN weather effects" << std::endl;
-    std::cout << "Press 'I' to activate windshield WIPERS" << std::endl;
-    std::cout << "Press 'V' to toggle DEBUG VISUALIZATION" << std::endl;
-    std::cout << "\nCockpit Position Adjustment (Numpad):" << std::endl;
-    std::cout << "  Numpad 4/6: Move LEFT/RIGHT (X axis)" << std::endl;
-    std::cout << "  Numpad 8/2: Move FORWARD/BACK (Y axis in model space)" << std::endl;
-    std::cout << "  Numpad +/-: Move UP/DOWN (Z axis in model space)" << std::endl;
-    std::cout << "\nCamera: COCKPIT view (mouse to look around)" << std::endl;
-    std::cout << "Drive: Arrow keys or WASD" << std::endl;
-    std::cout << "========================\n" << std::endl;
+
 }
 
 void Application::cleanup() {
