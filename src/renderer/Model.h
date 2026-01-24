@@ -8,10 +8,39 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <string>
 #include <vector>
 
 namespace DownPour {
+
+/**
+ * @brief glTF node representation
+ *
+ * Stores transform and hierarchy information from a glTF node.
+ * Used to preserve the scene graph structure from the model file.
+ */
+struct glTFNode {
+    std::string        name;
+    int                meshIndex      = -1;  // Index into model.meshes
+    int                primitiveIndex = -1;  // Which primitive within the mesh
+    glm::vec3          translation    = glm::vec3(0.0f);
+    glm::quat          rotation       = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    glm::vec3          scale          = glm::vec3(1.0f);
+    glm::mat4          matrix         = glm::mat4(1.0f);  // If node uses matrix instead of TRS
+    std::vector<int>   children;
+    int                parent = -1;
+};
+
+/**
+ * @brief glTF scene representation
+ *
+ * A glTF file can contain multiple scenes. Each scene has root nodes.
+ */
+struct glTFScene {
+    std::string      name;
+    std::vector<int> rootNodes;
+};
 
 /**
  * @brief Model class for loading and rendering GLTF models
@@ -69,11 +98,24 @@ public:
     size_t                       getMaterialCount() const;
     const Material&              getMaterial(size_t index) const;
 
+    /**
+     * @brief Find materials associated with a specific mesh
+     * @param meshIndex glTF mesh index
+     * @return Vector of (material index, Material) pairs for this mesh
+     */
+    std::vector<std::pair<size_t, const Material*>> getMaterialsForMesh(int32_t meshIndex) const;
+
     // Bounding box
     glm::vec3 getMinBounds() const;
     glm::vec3 getMaxBounds() const;
     glm::vec3 getDimensions() const;
     glm::vec3 getCenter() const;
+
+    // Hierarchy (NEW: glTF scene graph)
+    const std::vector<glTFNode>&  getNodes() const;
+    const glTFScene&              getDefaultScene() const;
+    const std::vector<glTFScene>& getScenes() const;
+    bool                          hasHierarchy() const;
 
 private:
     // Geometry data
@@ -99,6 +141,11 @@ private:
 
     // Named meshes
     std::vector<NamedMesh> namedMeshes;
+
+    // Hierarchy data (NEW: extracted from glTF)
+    std::vector<glTFNode>  nodes;
+    std::vector<glTFScene> scenes;
+    int                    defaultSceneIndex = 0;
 
     // Helper methods for geometry
     void createVertexBuffer(VkDevice device, VkPhysicalDevice physicalDevice, VkCommandPool commandPool,

@@ -17,12 +17,18 @@ find_package(Vulkan REQUIRED)
 add_executable(${PROJECT_NAME}
     main.cpp
     src/DownPour.cpp
+    src/logger/Logger.cpp
     src/renderer/Camera.cpp
     src/renderer/Vertex.cpp
     src/renderer/Model.cpp
     src/renderer/MaterialManager.cpp
     src/simulation/WeatherSystem.cpp
     src/simulation/WindshieldSurface.cpp
+    src/scene/SceneNode.cpp
+    src/scene/Scene.cpp
+    src/scene/Entity.cpp
+    src/scene/SceneManager.cpp
+    src/scene/SceneBuilder.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 

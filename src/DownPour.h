@@ -5,6 +5,12 @@
 #include "renderer/Material.h"
 #include "renderer/Model.h"
 #include "renderer/Vertex.h"
+#include "scene/CarEntity.h"
+#include "scene/Entity.h"
+#include "scene/RoadEntity.h"
+#include "scene/Scene.h"
+#include "scene/SceneBuilder.h"
+#include "scene/SceneManager.h"
 #include "simulation/WeatherSystem.h"
 #include "simulation/WindshieldSurface.h"
 #include "vulkan/VulkanTypes.h"
@@ -146,10 +152,13 @@ private:
     VkPipeline       worldPipeline       = VK_NULL_HANDLE;
     VkPipelineLayout worldPipelineLayout = VK_NULL_HANDLE;
 
-    // Car model
-    Model carModel;
-    // Road model
-    Model roadModel;
+    // Scene system (NEW)
+    SceneManager sceneManager;
+    CarEntity*   playerCar = nullptr;
+
+    // Legacy model storage (for transition period)
+    Model* carModelPtr  = nullptr;
+    Model* roadModelPtr = nullptr;
 
     // Material management
     MaterialManager*                     materialManager = nullptr;

@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: tools
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: pygltflib>=1.16.5
+Requires-Dist: trimesh>=4.5.3
+Requires-Dist: pillow>=11.0.0
+Requires-Dist: pyglet<2
+Requires-Dist: scipy>=1.17.0
+Requires-Dist: networkx>=3.6.1
+Requires-Dist: pyrender>=0.1.45

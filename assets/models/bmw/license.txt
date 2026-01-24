@@ -1,0 +1,11 @@
+Model Information:
+* title:	2015 Varis Full Widebody Kit F82 BMW M4
+* source:	https://sketchfab.com/3d-models/2015-varis-full-widebody-kit-f82-bmw-m4-e9b2bbe016ae4ab5a6be59b98b669cfd
+* author:	Ddiaz Design (https://sketchfab.com/ddiaz-design)
+
+Model License:
+* license type:	CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/)
+* requirements:	Author must be credited. No commercial use. Modified versions must have the same license.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "2015 Varis Full Widebody Kit F82 BMW M4" (https://sketchfab.com/3d-models/2015-varis-full-widebody-kit-f82-bmw-m4-e9b2bbe016ae4ab5a6be59b98b669cfd) by Ddiaz Design (https://sketchfab.com/ddiaz-design) licensed under CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/)

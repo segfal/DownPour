@@ -3,13 +3,13 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
 #include "Model.h"
+#include "logger/Logger.h"
 
 #include <tiny_gltf.h>
 
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
-#include <iostream>
 #include <stdexcept>
 
 namespace DownPour {
@@ -27,9 +27,32 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
         ret = loader.LoadASCIIFromFile(&model, &err, &warn, filepath);
     }
 
+    // Check for loading errors
+    Log logger;
+
+    if (!warn.empty()) {
+        logger.log("warning", "glTF Warning: " + warn);
+    }
+
+    if (!err.empty()) {
+        logger.log("error", "glTF Error: " + err);
+    }
+
+    if (!ret) {
+        logger.log("fatal", "Failed to load glTF model: " + filepath);
+        throw std::runtime_error("Failed to load glTF model: " + filepath);
+    }
+
+    logger.log("info", "Successfully loaded glTF model: " + filepath);
+    logger.log("info", "  Nodes: " + std::to_string(model.nodes.size()));
+    logger.log("info", "  Meshes: " + std::to_string(model.meshes.size()));
+    logger.log("info", "  Materials: " + std::to_string(model.materials.size()));
+
     // Process each mesh in the model
-    for (const auto& mesh : model.meshes) {
-        for (const auto& primitive : mesh.primitives) {
+    for (size_t meshIdx = 0; meshIdx < model.meshes.size(); meshIdx++) {
+        const auto& mesh = model.meshes[meshIdx];
+        for (size_t primIdx = 0; primIdx < mesh.primitives.size(); primIdx++) {
+            const auto& primitive = mesh.primitives[primIdx];
             // Track index start for this primitive
             uint32_t primitiveIndexStart = static_cast<uint32_t>(indices.size());
 
@@ -114,7 +137,8 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
             // Store named mesh information
             NamedMesh namedMesh;
             namedMesh.name           = mesh.name;
-            namedMesh.primitiveIndex = static_cast<uint32_t>(&primitive - &mesh.primitives[0]);
+            namedMesh.meshIndex      = static_cast<uint32_t>(meshIdx);
+            namedMesh.primitiveIndex = static_cast<uint32_t>(primIdx);
             namedMesh.indexStart     = primitiveIndexStart;
             namedMesh.indexCount     = primitiveIndexCount;
             namedMesh.transform      = glm::mat4(1.0f);
@@ -133,9 +157,11 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
             if (primitive.material >= 0) {
                 const tinygltf::Material& gltfMaterial = model.materials[primitive.material];
                 Material                 newMaterial;
-                newMaterial.name       = gltfMaterial.name;
-                newMaterial.indexStart = primitiveIndexStart;
-                newMaterial.indexCount = primitiveIndexCount;
+                newMaterial.name           = gltfMaterial.name;
+                newMaterial.meshIndex      = static_cast<int32_t>(meshIdx);
+                newMaterial.primitiveIndex = static_cast<int32_t>(primIdx);
+                newMaterial.indexStart     = primitiveIndexStart;
+                newMaterial.indexCount     = primitiveIndexCount;
 
                 // Name-based glass detection
                 std::string nameLower = gltfMaterial.name;
@@ -163,13 +189,19 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
                     }
                 }
 
-                // Extract texture paths
+                // Extract texture paths or embedded data
                 if (gltfMaterial.pbrMetallicRoughness.baseColorTexture.index >= 0) {
                     int                      textureIndex = gltfMaterial.pbrMetallicRoughness.baseColorTexture.index;
                     const tinygltf::Texture& texture      = model.textures[textureIndex];
                     const tinygltf::Image&   image        = model.images[texture.source];
                     if (!image.uri.empty()) {
+                        // External texture file
                         newMaterial.baseColorTexture = resolveTexturePath(filepath, image.uri);
+                    } else if (!image.image.empty()) {
+                        // Embedded texture in GLB
+                        newMaterial.embeddedBaseColor.pixels = image.image;
+                        newMaterial.embeddedBaseColor.width  = image.width;
+                        newMaterial.embeddedBaseColor.height = image.height;
                     }
                 }
 
@@ -180,6 +212,11 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
                     if (!image.uri.empty()) {
                         newMaterial.normalMapTexture   = resolveTexturePath(filepath, image.uri);
                         newMaterial.props.hasNormalMap = true;
+                    } else if (!image.image.empty()) {
+                        newMaterial.embeddedNormalMap.pixels = image.image;
+                        newMaterial.embeddedNormalMap.width  = image.width;
+                        newMaterial.embeddedNormalMap.height = image.height;
+                        newMaterial.props.hasNormalMap       = true;
                     }
                 }
 
@@ -190,6 +227,11 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
                     if (!image.uri.empty()) {
                         newMaterial.metallicRoughnessTexture   = resolveTexturePath(filepath, image.uri);
                         newMaterial.props.hasMetallicRoughness = true;
+                    } else if (!image.image.empty()) {
+                        newMaterial.embeddedMetallicRoughness.pixels = image.image;
+                        newMaterial.embeddedMetallicRoughness.width  = image.width;
+                        newMaterial.embeddedMetallicRoughness.height = image.height;
+                        newMaterial.props.hasMetallicRoughness       = true;
                     }
                 }
 
@@ -200,6 +242,11 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
                     if (!image.uri.empty()) {
                         newMaterial.emissiveTexture   = resolveTexturePath(filepath, image.uri);
                         newMaterial.props.hasEmissive = true;
+                    } else if (!image.image.empty()) {
+                        newMaterial.embeddedEmissive.pixels = image.image;
+                        newMaterial.embeddedEmissive.width  = image.width;
+                        newMaterial.embeddedEmissive.height = image.height;
+                        newMaterial.props.hasEmissive       = true;
                     }
                 }
                 materials.push_back(newMaterial);
@@ -207,7 +254,7 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
         }
     }
 
-    uint32_t indexCount = static_cast<uint32_t>(this->indices.size());
+    this->indexCount = static_cast<uint32_t>(indices.size());
 
     // Calculate bounding box
     if (!vertices.empty()) {
@@ -226,6 +273,72 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
         glm::vec3 dimensions = maxBounds - minBounds;
         glm::vec3 center     = (minBounds + maxBounds) * 0.5f;
     }
+
+    // Extract glTF hierarchy (scene graph)
+    nodes.reserve(model.nodes.size());
+    for (size_t i = 0; i < model.nodes.size(); i++) {
+        const tinygltf::Node& gltfNode = model.nodes[i];
+        glTFNode              node;
+
+        node.name      = gltfNode.name;
+        node.meshIndex = gltfNode.mesh;
+
+        // Extract transform - glTF nodes can have either matrix or TRS
+        if (!gltfNode.matrix.empty() && gltfNode.matrix.size() == 16) {
+            // Node uses matrix representation (glTF stores matrices in column-major order)
+            const auto& m = gltfNode.matrix;
+            node.matrix   = glm::mat4(static_cast<float>(m[0]), static_cast<float>(m[1]), static_cast<float>(m[2]),
+                                      static_cast<float>(m[3]), static_cast<float>(m[4]), static_cast<float>(m[5]),
+                                      static_cast<float>(m[6]), static_cast<float>(m[7]), static_cast<float>(m[8]),
+                                      static_cast<float>(m[9]), static_cast<float>(m[10]), static_cast<float>(m[11]),
+                                      static_cast<float>(m[12]), static_cast<float>(m[13]), static_cast<float>(m[14]),
+                                      static_cast<float>(m[15]));
+        } else {
+            // Node uses TRS representation
+            if (!gltfNode.translation.empty() && gltfNode.translation.size() == 3) {
+                node.translation = glm::vec3(gltfNode.translation[0], gltfNode.translation[1], gltfNode.translation[2]);
+            }
+            if (!gltfNode.rotation.empty() && gltfNode.rotation.size() == 4) {
+                // glTF quaternion order: [x, y, z, w]
+                // glm quaternion order: [w, x, y, z]
+                node.rotation =
+                    glm::quat(static_cast<float>(gltfNode.rotation[3]), static_cast<float>(gltfNode.rotation[0]),
+                              static_cast<float>(gltfNode.rotation[1]), static_cast<float>(gltfNode.rotation[2]));
+            }
+            if (!gltfNode.scale.empty() && gltfNode.scale.size() == 3) {
+                node.scale = glm::vec3(gltfNode.scale[0], gltfNode.scale[1], gltfNode.scale[2]);
+            }
+        }
+
+        // Extract children indices
+        node.children.reserve(gltfNode.children.size());
+        for (int childIdx : gltfNode.children) {
+            node.children.push_back(childIdx);
+        }
+
+        nodes.push_back(node);
+    }
+
+    // Build parent links from children
+    for (size_t i = 0; i < nodes.size(); i++) {
+        for (int childIdx : nodes[i].children) {
+            if (childIdx >= 0 && childIdx < static_cast<int>(nodes.size())) {
+                nodes[childIdx].parent = static_cast<int>(i);
+            }
+        }
+    }
+
+    // Extract scenes
+    scenes.reserve(model.scenes.size());
+    for (const auto& gltfScene : model.scenes) {
+        glTFScene scene;
+        scene.name      = gltfScene.name;
+        scene.rootNodes = gltfScene.nodes;
+        scenes.push_back(scene);
+    }
+    defaultSceneIndex = (model.defaultScene >= 0 && model.defaultScene < static_cast<int>(scenes.size()))
+                            ? model.defaultScene
+                            : 0;
 
     // Create Vulkan buffers
     createVertexBuffer(device, physicalDevice, commandPool, graphicsQueue);
@@ -451,6 +564,16 @@ const Material& Model::getMaterial(size_t index) const {
     return this->materials[index];
 }
 
+std::vector<std::pair<size_t, const Material*>> Model::getMaterialsForMesh(int32_t meshIndex) const {
+    std::vector<std::pair<size_t, const Material*>> results;
+    for (size_t i = 0; i < materials.size(); i++) {
+        if (materials[i].meshIndex == meshIndex) {
+            results.push_back({i, &materials[i]});
+        }
+    }
+    return results;
+}
+
 glm::vec3 Model::getMinBounds() const {
     return minBounds;
 }
@@ -505,4 +628,25 @@ bool Model::getMeshIndexRange(const std::string& name, uint32_t& outStart, uint3
     return false;
 }
 
-}  
+// Hierarchy accessors
+const std::vector<glTFNode>& Model::getNodes() const {
+    return nodes;
+}
+
+const glTFScene& Model::getDefaultScene() const {
+    static glTFScene emptyScene;
+    if (scenes.empty()) {
+        return emptyScene;
+    }
+    return scenes[defaultSceneIndex];
+}
+
+const std::vector<glTFScene>& Model::getScenes() const {
+    return scenes;
+}
+
+bool Model::hasHierarchy() const {
+    return !nodes.empty();
+}
+
+}
