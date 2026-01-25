@@ -18,5 +18,15 @@ struct NamedMesh {
     uint32_t    indexCount;      // Number of indices for this primitive
     glm::mat4   transform;       // Optional transform (defaults to identity)
 
-    NamedMesh() : meshIndex(0), primitiveIndex(0), indexStart(0), indexCount(0), transform(glm::mat4(1.0f)) {}
+    glm::vec3 minBounds;
+    glm::vec3 maxBounds;
+
+    NamedMesh()
+        : meshIndex(0),
+          primitiveIndex(0),
+          indexStart(0),
+          indexCount(0),
+          transform(glm::mat4(1.0f)),
+          minBounds(0.0f),
+          maxBounds(0.0f) {}
 };

@@ -1,16 +1,15 @@
 #pragma once
 
+#include "../core/Types.h"
 #include "Material.h"
 #include "Mesh.h"
 #include "Vertex.h"
 
-#include <vulkan/vulkan.h>
-
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/quaternion.hpp>
 #include <string>
 #include <vector>
+
+// Use centralized type aliases
+using namespace DownPour::Types;
 
 namespace DownPour {
 
@@ -21,15 +20,15 @@ namespace DownPour {
  * Used to preserve the scene graph structure from the model file.
  */
 struct glTFNode {
-    std::string        name;
-    int                meshIndex      = -1;  // Index into model.meshes
-    int                primitiveIndex = -1;  // Which primitive within the mesh
-    glm::vec3          translation    = glm::vec3(0.0f);
-    glm::quat          rotation       = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-    glm::vec3          scale          = glm::vec3(1.0f);
-    glm::mat4          matrix         = glm::mat4(1.0f);  // If node uses matrix instead of TRS
-    std::vector<int>   children;
-    int                parent = -1;
+    std::string      name;
+    int              meshIndex      = -1;  // Index into model.meshes
+    int              primitiveIndex = -1;  // Which primitive within the mesh
+    Vec3             translation    = Vec3(0.0f);
+    Quat             rotation       = Quat(1.0f, 0.0f, 0.0f, 0.0f);
+    Vec3             scale          = Vec3(1.0f);
+    Mat4             matrix         = Mat4(1.0f);  // If node uses matrix instead of TRS
+    std::vector<int> children;
+    int              parent = -1;
 };
 
 /**
@@ -55,6 +54,12 @@ class Model {
 public:
     Model()  = default;
     ~Model() = default;
+    enum class CameraMode { ORBIT, FOLLOW, COCKPIT };
+    CameraMode cameraMode    = CameraMode::COCKPIT;
+    float      orbitYaw      = 0.0f;
+    float      orbitPitch    = 0.0f;
+    float      orbitDistance = 10.0f;
+    bool       cKeyPressed   = false;
 
     /**
      * @brief Load a GLTF/GLB model from file
@@ -90,8 +95,8 @@ public:
     bool                     getMeshIndexRange(const std::string& name, uint32_t& outStart, uint32_t& outCount) const;
 
     // Transform
-    glm::mat4 getModelMatrix() const;
-    void      setModelMatrix(const glm::mat4& matrix);
+    Mat4 getModelMatrix() const;
+    void setModelMatrix(const Mat4& matrix);
 
     // Materials (NEW: returns Material, not LegacyMaterial)
     const std::vector<Material>& getMaterials() const;
@@ -106,16 +111,38 @@ public:
     std::vector<std::pair<size_t, const Material*>> getMaterialsForMesh(int32_t meshIndex) const;
 
     // Bounding box
-    glm::vec3 getMinBounds() const;
-    glm::vec3 getMaxBounds() const;
-    glm::vec3 getDimensions() const;
-    glm::vec3 getCenter() const;
+    Vec3 getMinBounds() const;
+    Vec3 getMaxBounds() const;
+    Vec3 getDimensions() const;
+    Vec3 getCenter() const;
+
+    /**
+     * @brief Calculate the bounding box of the entire model hierarchy
+     *
+     * Unlike getMin/MaxBounds which return raw vertex bounds, this
+     * accounts for all node transforms in the default scene.
+     */
+    void getHierarchyBounds(Vec3& minOut, Vec3& maxOut) const;
 
     // Hierarchy (NEW: glTF scene graph)
     const std::vector<glTFNode>&  getNodes() const;
     const glTFScene&              getDefaultScene() const;
     const std::vector<glTFScene>& getScenes() const;
     bool                          hasHierarchy() const;
+
+    void updateCamera(float deltaTime);
+    // setters
+    void setCameraMode(CameraMode mode);
+    void setOrbitYaw(float yaw);
+    void setOrbitPitch(float pitch);
+    void setOrbitDistance(float distance);
+    void setCKeyPressed(bool cPressed);
+    // getters
+    CameraMode getCameraMode() const;
+    float      getOrbitYaw() const;
+    float      getOrbitPitch() const;
+    float      getOrbitDistance() const;
+    bool       getCKeyPressed() const;
 
 private:
     // Geometry data
@@ -133,11 +160,11 @@ private:
     std::vector<Material> materials;
 
     // Transform
-    glm::mat4 modelMatrix = glm::mat4(1.0f);
+    Mat4 modelMatrix = Mat4(1.0f);
 
     // Bounding box
-    glm::vec3 minBounds = glm::vec3(0.0f);
-    glm::vec3 maxBounds = glm::vec3(0.0f);
+    Vec3 minBounds = Vec3(0.0f);
+    Vec3 maxBounds = Vec3(0.0f);
 
     // Named meshes
     std::vector<NamedMesh> namedMeshes;
@@ -161,8 +188,13 @@ private:
                     VkBuffer dstBuffer, VkDeviceSize size);
 
     uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
-
     std::string resolveTexturePath(const std::string& modelPath, const std::string& textureUri);
+
+    /**
+     * @brief Helper to process glTF textures (handles external paths and embedded data)
+     */
+    void processGLTFTexture(const std::string& filepath, const void* modelPtr, int textureIndex,
+                            std::string& outPath, EmbeddedTexture& outEmbedded, bool& outHasFlag);
 };
 
 }  // namespace DownPour

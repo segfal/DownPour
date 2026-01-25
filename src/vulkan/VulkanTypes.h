@@ -1,7 +1,6 @@
 #pragma once
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
+#include "core/Types.h"
 
 #include <cstdint>
 #include <optional>
@@ -9,6 +8,9 @@
 
 namespace DownPour {
 namespace Vulkan {
+
+// Import commonly used types from Types namespace
+using namespace DownPour::Types;
 
 /**
  * @brief Helper struct to store queue family indices

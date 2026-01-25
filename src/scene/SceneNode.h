@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include <glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
+#include "core/Types.h"
 
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace DownPour {
+
+// Use centralized type aliases
+using namespace DownPour::Types;
 
 // Forward declarations
 class Model;

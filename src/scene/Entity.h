@@ -4,13 +4,13 @@
 #include "Scene.h"
 #include "SceneNode.h"
 
-#include <glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace DownPour {
+
+// Note: Types are inherited from SceneNode.h which includes core/Types.h
 
 /**
  * @brief High-level game object composed of multiple SceneNodes

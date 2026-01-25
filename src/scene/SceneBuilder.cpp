@@ -5,9 +5,8 @@
 
 namespace DownPour {
 
-std::vector<NodeHandle> SceneBuilder::buildFromModel(Scene*                                     scene,
-                                                      const Model*                               model,
-                                                      const std::unordered_map<size_t, uint32_t>& materialIds) {
+std::vector<NodeHandle> SceneBuilder::buildFromModel(Scene* scene, const Model* model,
+                                                     const std::unordered_map<size_t, uint32_t>& materialIds) {
     if (!scene || !model) {
         return {};
     }
@@ -17,9 +16,9 @@ std::vector<NodeHandle> SceneBuilder::buildFromModel(Scene*                     
         return {};
     }
 
-    const glTFScene&              gltfScene = model->getDefaultScene();
-    const std::vector<glTFNode>&  nodes     = model->getNodes();
-    std::vector<NodeHandle>        rootHandles;
+    const glTFScene&             gltfScene = model->getDefaultScene();
+    const std::vector<glTFNode>& nodes     = model->getNodes();
+    std::vector<NodeHandle>      rootHandles;
 
     // Create nodes for each root in the scene
     for (int rootIndex : gltfScene.rootNodes) {
@@ -34,11 +33,8 @@ std::vector<NodeHandle> SceneBuilder::buildFromModel(Scene*                     
     return rootHandles;
 }
 
-NodeHandle SceneBuilder::createNodeRecursive(Scene*                                     scene,
-                                              const Model*                               model,
-                                              int                                        nodeIndex,
-                                              NodeHandle                                 parentHandle,
-                                              const std::unordered_map<size_t, uint32_t>& materialIds) {
+NodeHandle SceneBuilder::createNodeRecursive(Scene* scene, const Model* model, int nodeIndex, NodeHandle parentHandle,
+                                             const std::unordered_map<size_t, uint32_t>& materialIds) {
     const std::vector<glTFNode>& gltfNodes = model->getNodes();
     if (nodeIndex < 0 || nodeIndex >= static_cast<int>(gltfNodes.size())) {
         return NodeHandle{};

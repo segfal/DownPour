@@ -49,16 +49,57 @@ public:
         float hoodOpenAngle = 30.0f;  // degrees
     };
 
+    // ========================================================================
+    // Configuration Getters/Setters
+    // ========================================================================
     const Config& getConfig() const { return config; }
     Config&       getConfig() { return config; }
+    void          setConfig(const Config& cfg) { config = cfg; }
 
-    // Control methods (stubs for future implementation)
-    void setLights(bool on) { /* Toggle emissive materials */ }
-    void openDoor(Side side, bool open) { /* Animate door node rotation */ }
-    void openHood(bool open) { /* Animate hood node rotation */ }
+    // ========================================================================
+    // Node Getters (for specific car parts)
+    // ========================================================================
+    NodeHandle getWheelNode(Side side, bool front) const;
+    NodeHandle getSteeringWheelNode() const;
+    NodeHandle getWiperNode(Side side) const;
+    NodeHandle getHeadlightsNode() const;
+    NodeHandle getTaillightsNode() const;
+    NodeHandle getHoodNode() const;
+    NodeHandle getDoorNode(Side side) const;
+
+    // ========================================================================
+    // Physics/State Getters
+    // ========================================================================
+    float getWheelBase() const { return config.wheelBase; }
+    float getTrackWidth() const { return config.trackWidth; }
+    float getWheelRadius() const { return config.wheelRadius; }
+    float getMaxSteerAngle() const { return config.maxSteerAngle; }
+    float getLength() const { return config.length; }
+
+    // ========================================================================
+    // Control Methods (Animation/State Control)
+    // ========================================================================
+    void setSteeringAngle(float degrees);  // Rotate steering wheel
+    void setWheelRotation(float radians);  // Rotate all wheels (for driving)
+    void setWiperAngle(float degrees);     // Control wiper animation
+    void setLights(bool on);               // Toggle emissive materials
+    void openDoor(Side side, bool open);   // Animate door rotation
+    void openHood(bool open);              // Animate hood rotation
+
+    // ========================================================================
+    // State Tracking
+    // ========================================================================
+    float getCurrentSteeringAngle() const { return currentSteeringAngle; }
+    float getCurrentWheelRotation() const { return currentWheelRotation; }
+    float getCurrentWiperAngle() const { return currentWiperAngle; }
 
 private:
     Config config;
+
+    // Current animation state
+    float currentSteeringAngle = 0.0f;  // degrees
+    float currentWheelRotation = 0.0f;  // radians (accumulated)
+    float currentWiperAngle    = 0.0f;  // degrees
 };
 
 }  // namespace DownPour

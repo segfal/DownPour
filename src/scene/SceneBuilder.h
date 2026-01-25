@@ -28,9 +28,8 @@ public:
      * @param materialIds Map from material index to MaterialManager ID
      * @return Root node handle of created hierarchy (or multiple roots if scene has multiple)
      */
-    static std::vector<NodeHandle> buildFromModel(Scene*                                     scene,
-                                                   const Model*                               model,
-                                                   const std::unordered_map<size_t, uint32_t>& materialIds);
+    static std::vector<NodeHandle> buildFromModel(Scene* scene, const Model* model,
+                                                  const std::unordered_map<size_t, uint32_t>& materialIds);
 
 private:
     /**
@@ -43,10 +42,7 @@ private:
      * @param materialIds Material ID mapping
      * @return Created SceneNode handle
      */
-    static NodeHandle createNodeRecursive(Scene*                                     scene,
-                                          const Model*                               model,
-                                          int                                        nodeIndex,
-                                          NodeHandle                                 parentHandle,
+    static NodeHandle createNodeRecursive(Scene* scene, const Model* model, int nodeIndex, NodeHandle parentHandle,
                                           const std::unordered_map<size_t, uint32_t>& materialIds);
 };
 

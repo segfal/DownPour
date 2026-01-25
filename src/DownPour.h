@@ -3,7 +3,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include "renderer/Camera.h"
 #include "renderer/Material.h"
-#include "renderer/Model.h"
+#include "renderer/ModelAdapter.h"
 #include "renderer/Vertex.h"
 #include "scene/CarEntity.h"
 #include "scene/Entity.h"
@@ -69,25 +69,19 @@ private:
     bool   cursorCaptured = true;
 
     // Car driving state
-    glm::vec3 carPosition    = glm::vec3(0.0f, 0.0f, 0.0f);
-    float     carVelocity    = 0.0f;
-    float     carRotation    = 0.0f;
-    float     carScaleFactor = 1.0f;  // Calculated scale to achieve realistic size
+    glm::vec3 carPosition     = glm::vec3(0.0f, 2.0f, 2.0f);
+    float     carVelocity     = 0.0f;
+    float     carRotation     = -90.0f;
+    float     carScaleFactor  = 1.0f;
+    float     carBottomOffset = 0.0f;  // Dynamically calculated vertical offset
 
     /**
      * @brief Index ranges for specific car parts that need animation
      */
+    /**
+     * @brief Essential car parts tracking for animation
+     */
     struct CarParts {
-        uint32_t steeringWheelFrontStart = 0;
-        uint32_t steeringWheelFrontCount = 0;
-        uint32_t steeringWheelBackStart  = 0;
-        uint32_t steeringWheelBackCount  = 0;
-
-        uint32_t leftWiperStart  = 0;
-        uint32_t leftWiperCount  = 0;
-        uint32_t rightWiperStart = 0;
-        uint32_t rightWiperCount = 0;
-
         bool hasSteeringWheel = false;
         bool hasWipers        = false;
     };
@@ -96,18 +90,14 @@ private:
     float    steeringWheelRotation = 0.0f;  // Current steering wheel rotation in degrees
 
     // Simplified cockpit camera - hard-coded offset for initial implementation
-    // Can be adjusted based on different car models later
     // Note: These values are in the MODEL'S local space BEFORE the 90° X rotation
-    // Calculated based on car bounding box: 75% height, 40% from front
     glm::vec3 cockpitOffset = glm::vec3(0.0f, -0.21f, -0.18f);  // X=0(center), Y=forward(neg), Z=up
 
-    // Debug visualization
-    bool             debugVisualizationEnabled = true;  // Toggle with 'V' key
-    VkBuffer         debugVertexBuffer         = VK_NULL_HANDLE;
-    VkDeviceMemory   debugVertexBufferMemory   = VK_NULL_HANDLE;
-    uint32_t         debugVertexCount          = 0;
-    VkPipeline       debugPipeline             = VK_NULL_HANDLE;
-    VkPipelineLayout debugPipelineLayout       = VK_NULL_HANDLE;
+    // Debug visualization (simplified)
+    bool           debugVisualizationEnabled = true;  // Toggle with 'V' key
+    VkBuffer       debugVertexBuffer         = VK_NULL_HANDLE;
+    VkDeviceMemory debugVertexBufferMemory   = VK_NULL_HANDLE;
+    uint32_t       debugVertexCount          = 0;
 
     // Weather simulation system
     Simulation::WeatherSystem     weatherSystem;
@@ -142,13 +132,7 @@ private:
     VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
     VkImageView    depthImageView   = VK_NULL_HANDLE;
 
-    // OLD: Procedural road buffers - no longer needed (now using Model)
-    // VkBuffer roadVertexBuffer = VK_NULL_HANDLE;
-    // VkDeviceMemory roadVertexBufferMemory = VK_NULL_HANDLE;
-    // VkBuffer roadIndexBuffer = VK_NULL_HANDLE;
-    // VkDeviceMemory roadIndexBufferMemory = VK_NULL_HANDLE;
-    // uint32_t roadIndexCount = 0;
-    // World pipeline
+    // Pipelines
     VkPipeline       worldPipeline       = VK_NULL_HANDLE;
     VkPipelineLayout worldPipelineLayout = VK_NULL_HANDLE;
 
@@ -156,7 +140,11 @@ private:
     SceneManager sceneManager;
     CarEntity*   playerCar = nullptr;
 
-    // Legacy model storage (for transition period)
+    // Models (Managed by Adapters)
+    ModelAdapter* carAdapter  = nullptr;
+    ModelAdapter* roadAdapter = nullptr;
+
+    // Legacy pointers for systems still expecting raw Model*
     Model* carModelPtr  = nullptr;
     Model* roadModelPtr = nullptr;
 
@@ -266,11 +254,36 @@ private:
     void updateCarPhysics(float deltaTime);
     void updateCameraForCockpit();
 
-    // Debug visualization methods
-    void createDebugPipeline();
-    void createDebugMarkers();
-    void updateDebugMarkers();
-    void renderDebugMarkers(VkCommandBuffer cmd, uint32_t frameIndex);
+    /**
+     * @brief Configuration for Vulkan pipeline creation
+     */
+    struct PipelineConfig {
+        std::string                        vertShader;
+        std::string                        fragShader;
+        VkPipelineLayout                   layout           = VK_NULL_HANDLE;
+        bool                               enableBlending   = false;
+        bool                               enableDepthWrite = true;
+        VkCullModeFlags                    cullMode         = VK_CULL_MODE_BACK_BIT;
+        VkPrimitiveTopology                topology         = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        float                              lineWidth        = 1.0f;
+        std::vector<VkDescriptorSetLayout> descriptorLayouts;
+    };
+
+    /**
+     * @brief Centralized helper to create a Vulkan graphics pipeline
+     */
+    VkPipeline createBasePipeline(const PipelineConfig& config);
+
+    /**
+     * @brief Template helper to safely destroy Vulkan objects with null checks
+     */
+    template <typename T, typename D>
+    void safeDestroy(T& handle, D destroyFunc) {
+        if (handle != VK_NULL_HANDLE) {
+            destroyFunc(device, handle, nullptr);
+            handle = VK_NULL_HANDLE;
+        }
+    }
 };
 
 }  // namespace DownPour

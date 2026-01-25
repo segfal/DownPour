@@ -3,6 +3,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
 #include "Model.h"
+
 #include "logger/Logger.h"
 
 #include <tiny_gltf.h>
@@ -56,6 +57,10 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
             // Track index start for this primitive
             uint32_t primitiveIndexStart = static_cast<uint32_t>(indices.size());
 
+            // Set up bounds tracking for this primitive
+            glm::vec3 primMin(0.0f), primMax(0.0f);
+            NamedMesh namedMesh;
+
             // Get accessors
             const tinygltf::Accessor&   posAccessor = model.accessors[primitive.attributes.at("POSITION")];
             const tinygltf::BufferView& posView     = model.bufferViews[posAccessor.bufferView];
@@ -91,11 +96,19 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
                     &posBuffer.data[posView.byteOffset + posAccessor.byteOffset + i * 12]);
                 vertex.position = glm::vec3(pos[0], pos[1], pos[2]);
 
+                // Track primitive bounds
+                if (i == 0) {
+                    primMin = primMax = vertex.position;
+                } else {
+                    primMin = glm::min(primMin, vertex.position);
+                    primMax = glm::max(primMax, vertex.position);
+                }
+
                 // Normal
                 if (normalAccessor) {
                     const float* norm = reinterpret_cast<const float*>(
                         &normalBuffer->data[normalView->byteOffset + normalAccessor->byteOffset + i * 12]);
-                        vertex.normal = glm::vec3(norm[0], norm[1], norm[2]);
+                    vertex.normal = glm::vec3(norm[0], norm[1], norm[2]);
                 } else {
                     vertex.normal = glm::vec3(0.0f, 1.0f, 0.0f);
                 }
@@ -134,8 +147,11 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
             // Calculate index count for this primitive
             uint32_t primitiveIndexCount = static_cast<uint32_t>(indices.size()) - primitiveIndexStart;
 
+            // Store mesh/primitive bounding box
+            namedMesh.minBounds = primMin;
+            namedMesh.maxBounds = primMax;
+
             // Store named mesh information
-            NamedMesh namedMesh;
             namedMesh.name           = mesh.name;
             namedMesh.meshIndex      = static_cast<uint32_t>(meshIdx);
             namedMesh.primitiveIndex = static_cast<uint32_t>(primIdx);
@@ -148,15 +164,14 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
                 namedMesh.name += "_primitive" + std::to_string(namedMesh.primitiveIndex);
             }
 
-            // Only store if mesh has a name and valid geometry
-            if (!mesh.name.empty() && primitiveIndexCount > 0) {
-                namedMeshes.push_back(namedMesh);
-            }
+            // Store for hierarchy calculation even if unnamed
+            namedMeshes.push_back(namedMesh);
 
             // Load texture/material if available
             if (primitive.material >= 0) {
                 const tinygltf::Material& gltfMaterial = model.materials[primitive.material];
-                Material                 newMaterial;
+                Material                  newMaterial;
+                bool                      dummyFlag = false;
                 newMaterial.name           = gltfMaterial.name;
                 newMaterial.meshIndex      = static_cast<int32_t>(meshIdx);
                 newMaterial.primitiveIndex = static_cast<int32_t>(primIdx);
@@ -177,7 +192,8 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
                 }
 
                 // Detect transparency from glTF alphaMode
-                if (gltfMaterial.alphaMode == "BLEND") newMaterial.props.isTransparent = true;
+                if (gltfMaterial.alphaMode == "BLEND")
+                    newMaterial.props.isTransparent = true;
 
                 // Get base color factor alpha
                 bool hasCustomAlpha = (newMaterial.props.alphaValue < 0.99f);
@@ -189,66 +205,20 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
                     }
                 }
 
-                // Extract texture paths or embedded data
-                if (gltfMaterial.pbrMetallicRoughness.baseColorTexture.index >= 0) {
-                    int                      textureIndex = gltfMaterial.pbrMetallicRoughness.baseColorTexture.index;
-                    const tinygltf::Texture& texture      = model.textures[textureIndex];
-                    const tinygltf::Image&   image        = model.images[texture.source];
-                    if (!image.uri.empty()) {
-                        // External texture file
-                        newMaterial.baseColorTexture = resolveTexturePath(filepath, image.uri);
-                    } else if (!image.image.empty()) {
-                        // Embedded texture in GLB
-                        newMaterial.embeddedBaseColor.pixels = image.image;
-                        newMaterial.embeddedBaseColor.width  = image.width;
-                        newMaterial.embeddedBaseColor.height = image.height;
-                    }
-                }
+                // Extract texture paths or embedded data using helper
+                processGLTFTexture(filepath, &model, gltfMaterial.pbrMetallicRoughness.baseColorTexture.index,
+                                   newMaterial.baseColorTexture, newMaterial.embeddedBaseColor, dummyFlag);
 
-                if (gltfMaterial.normalTexture.index >= 0) {
-                    int                      texIndex = gltfMaterial.normalTexture.index;
-                    const tinygltf::Texture& texture  = model.textures[texIndex];
-                    const tinygltf::Image&   image    = model.images[texture.source];
-                    if (!image.uri.empty()) {
-                        newMaterial.normalMapTexture   = resolveTexturePath(filepath, image.uri);
-                        newMaterial.props.hasNormalMap = true;
-                    } else if (!image.image.empty()) {
-                        newMaterial.embeddedNormalMap.pixels = image.image;
-                        newMaterial.embeddedNormalMap.width  = image.width;
-                        newMaterial.embeddedNormalMap.height = image.height;
-                        newMaterial.props.hasNormalMap       = true;
-                    }
-                }
+                processGLTFTexture(filepath, &model, gltfMaterial.normalTexture.index, newMaterial.normalMapTexture,
+                                   newMaterial.embeddedNormalMap, newMaterial.props.hasNormalMap);
 
-                if (gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index >= 0) {
-                    int texIndex                     = gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index;
-                    const tinygltf::Texture& texture = model.textures[texIndex];
-                    const tinygltf::Image&   image   = model.images[texture.source];
-                    if (!image.uri.empty()) {
-                        newMaterial.metallicRoughnessTexture   = resolveTexturePath(filepath, image.uri);
-                        newMaterial.props.hasMetallicRoughness = true;
-                    } else if (!image.image.empty()) {
-                        newMaterial.embeddedMetallicRoughness.pixels = image.image;
-                        newMaterial.embeddedMetallicRoughness.width  = image.width;
-                        newMaterial.embeddedMetallicRoughness.height = image.height;
-                        newMaterial.props.hasMetallicRoughness       = true;
-                    }
-                }
+                processGLTFTexture(filepath, &model, gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index,
+                                   newMaterial.metallicRoughnessTexture, newMaterial.embeddedMetallicRoughness,
+                                   newMaterial.props.hasMetallicRoughness);
 
-                if (gltfMaterial.emissiveTexture.index >= 0) {
-                    int                      texIndex = gltfMaterial.emissiveTexture.index;
-                    const tinygltf::Texture& texture  = model.textures[texIndex];
-                    const tinygltf::Image&   image    = model.images[texture.source];
-                    if (!image.uri.empty()) {
-                        newMaterial.emissiveTexture   = resolveTexturePath(filepath, image.uri);
-                        newMaterial.props.hasEmissive = true;
-                    } else if (!image.image.empty()) {
-                        newMaterial.embeddedEmissive.pixels = image.image;
-                        newMaterial.embeddedEmissive.width  = image.width;
-                        newMaterial.embeddedEmissive.height = image.height;
-                        newMaterial.props.hasEmissive       = true;
-                    }
-                }
+                processGLTFTexture(filepath, &model, gltfMaterial.emissiveTexture.index, newMaterial.emissiveTexture,
+                                   newMaterial.embeddedEmissive, newMaterial.props.hasEmissive);
+
                 materials.push_back(newMaterial);
             }
         }
@@ -336,9 +306,8 @@ void Model::loadFromFile(const std::string& filepath, VkDevice device, VkPhysica
         scene.rootNodes = gltfScene.nodes;
         scenes.push_back(scene);
     }
-    defaultSceneIndex = (model.defaultScene >= 0 && model.defaultScene < static_cast<int>(scenes.size()))
-                            ? model.defaultScene
-                            : 0;
+    defaultSceneIndex =
+        (model.defaultScene >= 0 && model.defaultScene < static_cast<int>(scenes.size())) ? model.defaultScene : 0;
 
     // Create Vulkan buffers
     createVertexBuffer(device, physicalDevice, commandPool, graphicsQueue);
@@ -487,7 +456,6 @@ std::string Model::resolveTexturePath(const std::string& modelPath, const std::s
     std::filesystem::path texturePath = modelDir / textureUri;
 
     if (std::filesystem::exists(texturePath)) {
-        std::cout << "Found texture at: " << texturePath.string() << std::endl;
         return texturePath.string();
     }
 
@@ -497,7 +465,6 @@ std::string Model::resolveTexturePath(const std::string& modelPath, const std::s
     std::filesystem::path altPath         = std::filesystem::path("assets/textures") / modelName / textureFilename;
 
     if (std::filesystem::exists(altPath)) {
-        std::cout << "Found texture at alternate location: " << altPath.string() << std::endl;
         return altPath.string();
     }
 
@@ -508,26 +475,43 @@ std::string Model::resolveTexturePath(const std::string& modelPath, const std::s
     return texturePath.string();
 }
 
+void Model::processGLTFTexture(const std::string& filepath, const void* modelPtr, int textureIndex,
+                               std::string& outPath, EmbeddedTexture& outEmbedded, bool& outHasFlag) {
+    if (textureIndex < 0)
+        return;
+
+    const auto& model = *static_cast<const tinygltf::Model*>(modelPtr);
+    if (textureIndex >= static_cast<int>(model.textures.size()))
+        return;
+
+    const auto& texture = model.textures[textureIndex];
+    if (texture.source < 0 || texture.source >= static_cast<int>(model.images.size()))
+        return;
+
+    const auto& image = model.images[texture.source];
+
+    if (!image.uri.empty()) {
+        outPath = resolveTexturePath(filepath, image.uri);
+    } else if (!image.image.empty()) {
+        outEmbedded.pixels = image.image;
+        outEmbedded.width  = image.width;
+        outEmbedded.height = image.height;
+    }
+    outHasFlag = true;
+}
+
 void Model::cleanup(VkDevice device) {
     materials.clear();
 
+    vkDestroyBuffer(device, indexBuffer, nullptr);
+    vkFreeMemory(device, indexBufferMemory, nullptr);
+    vkDestroyBuffer(device, vertexBuffer, nullptr);
+    vkFreeMemory(device, vertexBufferMemory, nullptr);
 
-    if (indexBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, indexBuffer, nullptr);
-        indexBuffer = VK_NULL_HANDLE;
-    }
-    if (indexBufferMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, indexBufferMemory, nullptr);
-        indexBufferMemory = VK_NULL_HANDLE;
-    }
-    if (vertexBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, vertexBuffer, nullptr);
-        vertexBuffer = VK_NULL_HANDLE;
-    }
-    if (vertexBufferMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, vertexBufferMemory, nullptr);
-        vertexBufferMemory = VK_NULL_HANDLE;
-    }
+    indexBuffer        = VK_NULL_HANDLE;
+    indexBufferMemory  = VK_NULL_HANDLE;
+    vertexBuffer       = VK_NULL_HANDLE;
+    vertexBufferMemory = VK_NULL_HANDLE;
 }
 
 VkBuffer Model::getVertexBuffer() const {
@@ -590,6 +574,80 @@ glm::vec3 Model::getCenter() const {
     return (minBounds + maxBounds) * 0.5f;
 }
 
+void Model::getHierarchyBounds(glm::vec3& minOut, glm::vec3& maxOut) const {
+    if (nodes.empty() || scenes.empty()) {
+        minOut = minBounds;
+        maxOut = maxBounds;
+        return;
+    }
+
+    bool      initialized = false;
+    glm::vec3 finalMin(0.0f), finalMax(0.0f);
+
+    const auto& defaultScene = scenes[defaultSceneIndex];
+
+    // Recursive helper to traverse hierarchy
+    auto traverse = [&](auto& self, int nodeIdx, const glm::mat4& parentMatrix) -> void {
+        const auto& node = nodes[nodeIdx];
+
+        // Compute local matrix
+        glm::mat4 localMatrix;
+        if (node.matrix != glm::mat4(1.0f)) {
+            localMatrix = node.matrix;
+        } else {
+            localMatrix = glm::translate(glm::mat4(1.0f), node.translation) * glm::mat4_cast(node.rotation) *
+                          glm::scale(glm::mat4(1.0f), node.scale);
+        }
+
+        glm::mat4 globalMatrix = parentMatrix * localMatrix;
+
+        // If node has a mesh, transform its bounding boxes
+        if (node.meshIndex >= 0) {
+            for (const auto& mesh : namedMeshes) {
+                if (mesh.meshIndex == static_cast<uint32_t>(node.meshIndex)) {
+                    // Transform primitive bounding box corners
+                    glm::vec3 corners[8] = {{mesh.minBounds.x, mesh.minBounds.y, mesh.minBounds.z},
+                                            {mesh.minBounds.x, mesh.minBounds.y, mesh.maxBounds.z},
+                                            {mesh.minBounds.x, mesh.maxBounds.y, mesh.minBounds.z},
+                                            {mesh.minBounds.x, mesh.maxBounds.y, mesh.maxBounds.z},
+                                            {mesh.maxBounds.x, mesh.minBounds.y, mesh.minBounds.z},
+                                            {mesh.maxBounds.x, mesh.minBounds.y, mesh.maxBounds.z},
+                                            {mesh.maxBounds.x, mesh.maxBounds.y, mesh.minBounds.z},
+                                            {mesh.maxBounds.x, mesh.maxBounds.y, mesh.maxBounds.z}};
+
+                    for (int i = 0; i < 8; ++i) {
+                        glm::vec3 p = glm::vec3(globalMatrix * glm::vec4(corners[i], 1.0f));
+                        if (!initialized) {
+                            finalMin = finalMax = p;
+                            initialized         = true;
+                        } else {
+                            finalMin = glm::min(finalMin, p);
+                            finalMax = glm::max(finalMax, p);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Recursively process children
+        for (int childIdx : node.children) {
+            self(self, childIdx, globalMatrix);
+        }
+    };
+
+    for (int rootIdx : defaultScene.rootNodes) {
+        traverse(traverse, rootIdx, glm::mat4(1.0f));
+    }
+
+    if (initialized) {
+        minOut = finalMin;
+        maxOut = finalMax;
+    } else {
+        minOut = minBounds;
+        maxOut = maxBounds;
+    }
+}
+
 std::vector<std::string> Model::getMeshNames() const {
     std::vector<std::string> names;
     names.reserve(namedMeshes.size());
@@ -649,4 +707,4 @@ bool Model::hasHierarchy() const {
     return !nodes.empty();
 }
 
-}
+}  // namespace DownPour
