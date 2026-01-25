@@ -43,8 +43,9 @@ if [ $? -eq 0 ]; then
     echo -e "${YELLOW}Running DownPour...${NC}"
     echo -e "${GREEN}==================================${NC}\n"
 
-    # Run the executable
-    ./DownPour
+    # Run the executable from the project root (where assets are)
+    cd "$SCRIPT_DIR"
+    "$BUILD_DIR/DownPour"
 else
     echo -e "${RED}Build failed!${NC}"
     exit 1

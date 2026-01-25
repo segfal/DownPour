@@ -30,5 +30,9 @@ void main() {
 
     vec3 finalColor = ambient + diffuse + rimLight;
 
-    outColor = vec4(finalColor, texColor.a);
+    // AGGRESSIVE TEST: Force alpha to 0.3 for ALL transparent materials
+    // This confirms if the shader is even being used
+    float alpha = 0.3;
+
+    outColor = vec4(finalColor, alpha);
 }

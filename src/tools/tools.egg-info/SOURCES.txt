@@ -1,0 +1,9 @@
+README.md
+main.py
+material_detector.py
+pyproject.toml
+tools.egg-info/PKG-INFO
+tools.egg-info/SOURCES.txt
+tools.egg-info/dependency_links.txt
+tools.egg-info/requires.txt
+tools.egg-info/top_level.txt

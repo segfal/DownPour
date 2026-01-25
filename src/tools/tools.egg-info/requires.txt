@@ -1,0 +1,7 @@
+pygltflib>=1.16.5
+trimesh>=4.5.3
+pillow>=11.0.0
+pyglet<2
+scipy>=1.17.0
+networkx>=3.6.1
+pyrender>=0.1.45
