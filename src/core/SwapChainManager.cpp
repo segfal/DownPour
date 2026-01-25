@@ -21,7 +21,7 @@ void SwapChainManager::cleanup(VkDevice device) {
     swapchainFramebuffers.clear();
 
     for (auto imageView : swapchainImageViews) {
-        vkDestroyImageView(device, imageView, nullptr);
+        vkDestroyImageView(device, imageView, nullptr); 
     }
     swapchainImageViews.clear();
 

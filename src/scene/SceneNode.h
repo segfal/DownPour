@@ -11,6 +11,8 @@ namespace DownPour {
 
 // Use centralized type aliases
 using namespace DownPour::Types;
+typedef std::string str;
+typedef uint32_t    uint;
 
 // Forward declarations
 class Model;
@@ -21,8 +23,8 @@ class Model;
  * Uses index + generation to detect stale handles after node deletion.
  */
 struct NodeHandle {
-    uint32_t index      = INVALID_INDEX;
-    uint32_t generation = 0;
+    uint index      = INVALID_INDEX;
+    uint generation = 0;
 
     bool isValid() const { return index != INVALID_INDEX; }
 
@@ -30,8 +32,10 @@ struct NodeHandle {
 
     bool operator!=(const NodeHandle& other) const { return !(*this == other); }
 
-    static constexpr uint32_t INVALID_INDEX = 0xFFFFFFFF;
+    static constexpr uint INVALID_INDEX = 0xFFFFFFFF;
 };
+
+typedef std::vector<NodeHandle> NodeHandleList;
 
 /**
  * @brief Node in the scene graph hierarchy
@@ -42,28 +46,28 @@ struct NodeHandle {
  */
 struct SceneNode {
     // Identification
-    std::string name;
-    uint32_t    generation = 0;
+    str  name;
+    uint generation = 0;
 
     // Hierarchy (stored as flat indices, not pointers)
-    NodeHandle              parent;
-    std::vector<NodeHandle> children;
+    NodeHandle     parent;
+    NodeHandleList children;
 
     // Transform (stored as TRS for easy animation)
-    glm::vec3 localPosition = glm::vec3(0.0f);
-    glm::quat localRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);  // Identity quaternion
-    glm::vec3 localScale    = glm::vec3(1.0f);
+    Vec3 localPosition = Vec3(0.0f);
+    Quat localRotation = Quat(1.0f, 0.0f, 0.0f, 0.0f);  // Identity quaternion
+    Vec3 localScale    = Vec3(1.0f);
 
     // Cached world transform (updated during transform propagation)
-    glm::mat4 worldTransform = glm::mat4(1.0f);
-    bool      isDirty        = true;  // Needs transform update
+    Mat4 worldTransform = Mat4(1.0f);
+    bool isDirty        = true;  // Needs transform update
 
     // Rendering data (optional - not all nodes have meshes)
     struct RenderData {
         const Model* model = nullptr;  // Reference to geometry
-        uint32_t     meshIndex;        // Which mesh in the glTF
-        uint32_t     primitiveIndex;   // Which primitive within the mesh
-        uint32_t     materialId;       // MaterialManager ID
+        uint         meshIndex;        // Which mesh in the glTF
+        uint         primitiveIndex;   // Which primitive within the mesh
+        uint         materialId;       // MaterialManager ID
         bool         isVisible     = true;
         bool         isTransparent = false;
 
@@ -71,21 +75,22 @@ struct SceneNode {
         uint32_t indexStart = 0;
         uint32_t indexCount = 0;
     };
-    std::optional<RenderData> renderData;
+    typedef std::optional<RenderData> RenderDataOpt;
+    RenderDataOpt                     renderData;
 
     // Bounding volume (for frustum culling, future optimization)
-    glm::vec3 boundsMin = glm::vec3(0.0f);
-    glm::vec3 boundsMax = glm::vec3(0.0f);
+    Vec3 boundsMin = Vec3(0.0f);
+    Vec3 boundsMax = Vec3(0.0f);
 
     // Flags
     bool isStatic = true;  // Static nodes can skip transform updates after first frame
 
     // Helper methods
-    glm::mat4 getLocalTransform() const;
-    void      setLocalTransform(const glm::mat4& transform);
-    void      setLocalPosition(const glm::vec3& pos);
-    void      setLocalRotation(const glm::quat& rot);
-    void      setLocalScale(const glm::vec3& scale);
+    Mat4 getLocalTransform() const;
+    void setLocalTransform(const Mat4& transform);
+    void setLocalPosition(const Vec3& pos);
+    void setLocalRotation(const Quat& rot);
+    void setLocalScale(const Vec3& scale);
 };
 
 }  // namespace DownPour

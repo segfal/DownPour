@@ -2,6 +2,9 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include "core/VulkanContext.h"
+#include "core/SwapChainManager.h"
+#include "core/PipelineFactory.h"
+#include "core/ResourceManager.h"
 #include "renderer/Camera.h"
 #include "renderer/Material.h"
 #include "renderer/ModelAdapter.h"
@@ -107,6 +110,9 @@ private:
     // Vulkan context (manages instance, device, surface, queues)
     VulkanContext vulkanContext;
 
+    // Swap chain manager (manages swap chain, render pass, framebuffers)
+    SwapChainManager swapChainManager;
+
     // GLFW window
     GLFWwindow* window = nullptr;
 
@@ -116,15 +122,6 @@ private:
     VkPipelineLayout             pipelineLayout      = VK_NULL_HANDLE;
     VkPipeline                   graphicsPipeline    = VK_NULL_HANDLE;
     VkDescriptorSetLayout        descriptorSetLayout = VK_NULL_HANDLE;
-
-    // Swap chain
-    VkSwapchainKHR             swapchain = VK_NULL_HANDLE;
-    std::vector<VkImage>       swapchainImages;
-    VkFormat                   swapchainImageFormat;
-    VkExtent2D                 swapchainExtent;
-    std::vector<VkImageView>   swapchainImageViews;
-    VkRenderPass               renderPass = VK_NULL_HANDLE;
-    std::vector<VkFramebuffer> swapchainFramebuffers;
 
     // Depth resources
     VkImage        depthImage       = VK_NULL_HANDLE;
@@ -168,14 +165,10 @@ private:
     // Initialization methods
     void           initWindow();
     void           initVulkan();
-    void           createSwapChain();
-    void           createRenderPass();
     void           createGraphicsPipeline();
-    void           createFramebuffers();
     VkShaderModule createShaderModule(const std::vector<char>& code);
     void           recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, uint32_t frameIndex);
     void           createCommandBuffers();
-    void           createImageViews();
     void           createCommandPool();
     void           createSyncObjects();
     void           drawFrame();
@@ -189,16 +182,7 @@ private:
 
     // Helper methods
     Vulkan::QueueFamilyIndices      findQueueFamilies(VkPhysicalDevice device);
-    Vulkan::SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
-    VkSurfaceFormatKHR              chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
-    VkPresentModeKHR                chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
-    VkExtent2D                      chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
     static void                     mouseCallback(GLFWwindow* window, double xpos, double ypos);
-
-    // Buffer Helper methods
-    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer,
-                      VkDeviceMemory& bufferMemory);
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
     // frame management
     static constexpr int     MAX_FRAMES_IN_FLIGHT = 2;
@@ -220,14 +204,7 @@ private:
     void createDescriptorSets();
 
     // Depth resources
-    VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling,
-                                 VkFormatFeatureFlags features);
-    VkFormat findDepthFormat();
-    void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
-                     VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
     void createDepthResources();
-
-    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
     void createRoadBuffers();
 
     void createWorldPipeline();
@@ -248,26 +225,6 @@ private:
     // Car simulation methods
     void updateCarPhysics(float deltaTime);
     void updateCameraForCockpit();
-
-    /**
-     * @brief Configuration for Vulkan pipeline creation
-     */
-    struct PipelineConfig {
-        std::string                        vertShader;
-        std::string                        fragShader;
-        VkPipelineLayout                   layout           = VK_NULL_HANDLE;
-        bool                               enableBlending   = false;
-        bool                               enableDepthWrite = true;
-        VkCullModeFlags                    cullMode         = VK_CULL_MODE_BACK_BIT;
-        VkPrimitiveTopology                topology         = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        float                              lineWidth        = 1.0f;
-        std::vector<VkDescriptorSetLayout> descriptorLayouts;
-    };
-
-    /**
-     * @brief Centralized helper to create a Vulkan graphics pipeline
-     */
-    VkPipeline createBasePipeline(const PipelineConfig& config);
 
     /**
      * @brief Template helper to safely destroy Vulkan objects with null checks

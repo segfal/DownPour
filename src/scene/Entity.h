@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "../core/Types.h"
 #include "Scene.h"
 #include "SceneNode.h"
 
 #include <string>
 #include <unordered_map>
 #include <vector>
-
 namespace DownPour {
-
-// Note: Types are inherited from SceneNode.h which includes core/Types.h
+typedef std::string str;
+using namespace DownPour::Types;
 
 /**
  * @brief High-level game object composed of multiple SceneNodes
@@ -26,45 +26,45 @@ public:
      * @param name Entity name (e.g., "player_car", "enemy_01")
      * @param scene Scene that owns this entity's nodes
      */
-    Entity(const std::string& name, Scene* scene);
+    Entity(const str& name, Scene* scene);
     virtual ~Entity() = default;
 
     // Node management
-    void                    addNode(NodeHandle node, const std::string& role = "");
-    NodeHandle              getNode(const std::string& role) const;
+    void                    addNode(NodeHandle node, const str& role = "");
+    NodeHandle              getNode(const str& role) const;
     std::vector<NodeHandle> getAllNodes() const;
 
     // Root transform (applies to entire entity)
-    void setPosition(const glm::vec3& pos);
-    void setRotation(const glm::quat& rot);
-    void setScale(const glm::vec3& scale);
+    void setPosition(const Vec3& pos);
+    void setRotation(const Quat& rot);
+    void setScale(const Vec3& scale);
 
-    glm::vec3 getPosition() const;
-    glm::quat getRotation() const;
-    glm::vec3 getScale() const;
+    Vec3 getPosition() const;
+    Quat getRotation() const;
+    Vec3 getScale() const;
 
     // Convenience transform methods
-    void translate(const glm::vec3& delta);
-    void rotate(const glm::quat& delta);
+    void translate(const Vec3& delta);
+    void rotate(const Quat& delta);
 
     // Animation support (for specific parts)
-    void animate(const std::string& role, const glm::mat4& localTransform);
-    void animatePosition(const std::string& role, const glm::vec3& position);
-    void animateRotation(const std::string& role, const glm::quat& rotation);
-    void animateScale(const std::string& role, const glm::vec3& scale);
+    void animate(const str& role, const Mat4& localTransform);
+    void animatePosition(const str& role, const Vec3& position);
+    void animateRotation(const str& role, const Quat& rotation);
+    void animateScale(const str& role, const Vec3& scale);
 
     // Accessors
-    NodeHandle         getRootNode() const { return rootNode; }
-    const std::string& getName() const { return name; }
-    Scene*             getScene() const { return scene; }
+    NodeHandle getRootNode() const { return rootNode; }
+    const str& getName() const { return name; }
+    Scene*     getScene() const { return scene; }
 
 private:
-    std::string name;
-    Scene*      scene;
-    NodeHandle  rootNode;
+    str        name;
+    Scene*     scene;
+    NodeHandle rootNode;
 
     // Named node roles (e.g., "wheel_FL", "door_left", "steering_wheel")
-    std::unordered_map<std::string, NodeHandle> namedNodes;
+    std::unordered_map<str, NodeHandle> namedNodes;
 };
 
 }  // namespace DownPour
