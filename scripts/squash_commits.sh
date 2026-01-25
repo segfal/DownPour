@@ -86,7 +86,7 @@ analyze_commits() {
     
     # Show commits with uninformative messages
     print_info "Commits with potentially uninformative messages (short or symbols only)..."
-    git log --oneline | grep -E '^[a-f0-9]+ .{1,15}$' | head -20
+    git log --oneline | grep -E '^[a-f0-9]{7,} .{1,15}$' | head -20
     echo ""
     
     # Show recent merge commits
@@ -160,9 +160,11 @@ EOF
     
     git commit -F /tmp/commit_msg
     
-    # Replace old branch
-    git branch -D "$current_branch"
-    git branch -m "$current_branch"
+    # Replace old branch - switch to temp branch first, then delete and rename
+    temp_new_branch="temp-squash-new"
+    git branch -m "$temp_new_branch"
+    git branch -D "$current_branch" 2>/dev/null || true
+    git branch -m "$temp_new_branch" "$current_branch"
     
     print_info "Commits squashed successfully!"
     print_warning "To push changes, you need to force push:"
@@ -265,7 +267,7 @@ main() {
 }
 
 # Run main function if script is executed (not sourced)
-if [ "${BASH_SOURCE[0]}" == "${0}" ]; then
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     if [ $# -eq 0 ]; then
         show_usage
         exit 1
