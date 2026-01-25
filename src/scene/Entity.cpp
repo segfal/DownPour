@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: MIT
 #include "Entity.h"
 
+#include "../core/Types.h"
+
+#include <string>
 namespace DownPour {
+typedef std::string str;
+using namespace DownPour::Types;
 
-Entity::Entity(const std::string& name, Scene* scene) : name(name), scene(scene), rootNode() {}
+Entity::Entity(const str& name, Scene* scene) : name(name), scene(scene), rootNode() {}
 
-void Entity::addNode(NodeHandle node, const std::string& role) {
+void Entity::addNode(NodeHandle node, const str& role) {
     if (!node.isValid()) {
         return;
     }
@@ -21,7 +26,7 @@ void Entity::addNode(NodeHandle node, const std::string& role) {
     }
 }
 
-NodeHandle Entity::getNode(const std::string& role) const {
+NodeHandle Entity::getNode(const str& role) const {
     auto it = namedNodes.find(role);
     if (it != namedNodes.end()) {
         return it->second;
@@ -40,7 +45,7 @@ std::vector<NodeHandle> Entity::getAllNodes() const {
     return nodes;
 }
 
-void Entity::setPosition(const glm::vec3& pos) {
+void Entity::setPosition(const Vec3& pos) {
     if (!scene || !rootNode.isValid()) {
         return;
     }
@@ -52,7 +57,7 @@ void Entity::setPosition(const glm::vec3& pos) {
     }
 }
 
-void Entity::setRotation(const glm::quat& rot) {
+void Entity::setRotation(const Quat& rot) {
     if (!scene || !rootNode.isValid()) {
         return;
     }
@@ -64,7 +69,7 @@ void Entity::setRotation(const glm::quat& rot) {
     }
 }
 
-void Entity::setScale(const glm::vec3& scale) {
+void Entity::setScale(const Vec3& scale) {
     if (!scene || !rootNode.isValid()) {
         return;
     }
@@ -76,42 +81,42 @@ void Entity::setScale(const glm::vec3& scale) {
     }
 }
 
-glm::vec3 Entity::getPosition() const {
+Vec3 Entity::getPosition() const {
     if (!scene || !rootNode.isValid()) {
-        return glm::vec3(0.0f);
+        return Vec3(0.0f);
     }
 
     const SceneNode* node = scene->getNode(rootNode);
-    return node ? node->localPosition : glm::vec3(0.0f);
+    return node ? node->localPosition : Vec3(0.0f);
 }
 
-glm::quat Entity::getRotation() const {
+Quat Entity::getRotation() const {
     if (!scene || !rootNode.isValid()) {
-        return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+        return Quat(1.0f, 0.0f, 0.0f, 0.0f);
     }
 
     const SceneNode* node = scene->getNode(rootNode);
-    return node ? node->localRotation : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    return node ? node->localRotation : Quat(1.0f, 0.0f, 0.0f, 0.0f);
 }
 
-glm::vec3 Entity::getScale() const {
+Vec3 Entity::getScale() const {
     if (!scene || !rootNode.isValid()) {
-        return glm::vec3(1.0f);
+        return Vec3(1.0f);
     }
 
     const SceneNode* node = scene->getNode(rootNode);
-    return node ? node->localScale : glm::vec3(1.0f);
+    return node ? node->localScale : Vec3(1.0f);
 }
 
-void Entity::translate(const glm::vec3& delta) {
+void Entity::translate(const Vec3& delta) {
     setPosition(getPosition() + delta);
 }
 
-void Entity::rotate(const glm::quat& delta) {
+void Entity::rotate(const Quat& delta) {
     setRotation(delta * getRotation());
 }
 
-void Entity::animate(const std::string& role, const glm::mat4& localTransform) {
+void Entity::animate(const str& role, const Mat4& localTransform) {
     if (!scene) {
         return;
     }
@@ -128,7 +133,7 @@ void Entity::animate(const std::string& role, const glm::mat4& localTransform) {
     }
 }
 
-void Entity::animatePosition(const std::string& role, const glm::vec3& position) {
+void Entity::animatePosition(const str& role, const Vec3& position) {
     if (!scene) {
         return;
     }
@@ -145,7 +150,7 @@ void Entity::animatePosition(const std::string& role, const glm::vec3& position)
     }
 }
 
-void Entity::animateRotation(const std::string& role, const glm::quat& rotation) {
+void Entity::animateRotation(const str& role, const Quat& rotation) {
     if (!scene) {
         return;
     }
@@ -162,7 +167,7 @@ void Entity::animateRotation(const std::string& role, const glm::quat& rotation)
     }
 }
 
-void Entity::animateScale(const std::string& role, const glm::vec3& scale) {
+void Entity::animateScale(const str& role, const Vec3& scale) {
     if (!scene) {
         return;
     }

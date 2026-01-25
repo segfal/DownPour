@@ -5,10 +5,12 @@
 #include <queue>
 
 namespace DownPour {
+typedef std::string str;
+using namespace DownPour::Types;
 
-Scene::Scene(const std::string& name) : name(name) {}
+Scene::Scene(const str& name) : name(name) {}
 
-NodeHandle Scene::createNode(const std::string& nodeName) {
+NodeHandle Scene::createNode(const str& nodeName) {
     uint32_t index = allocateNodeSlot();
 
     SceneNode& node = nodes[index];
@@ -16,10 +18,10 @@ NodeHandle Scene::createNode(const std::string& nodeName) {
     node.generation = node.generation + 1;  // Increment generation for new node
     node.parent     = NodeHandle{};         // No parent (invalid handle)
     node.children.clear();
-    node.localPosition  = glm::vec3(0.0f);
-    node.localRotation  = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-    node.localScale     = glm::vec3(1.0f);
-    node.worldTransform = glm::mat4(1.0f);
+    node.localPosition  = Vec3(0.0f);
+    node.localRotation  = Quat(1.0f, 0.0f, 0.0f, 0.0f);
+    node.localScale     = Vec3(1.0f);
+    node.worldTransform = Mat4(1.0f);
     node.isDirty        = true;
     node.renderData     = std::nullopt;
     node.isStatic       = true;
@@ -38,13 +40,11 @@ NodeHandle Scene::createNode(const std::string& nodeName) {
     return handle;
 }
 
-NodeHandle Scene::createNode(const std::string& nodeName, NodeHandle parent) {
+NodeHandle Scene::createNode(const str& nodeName, NodeHandle parent) {
     NodeHandle handle = createNode(nodeName);
 
-    if (parent.isValid()) {
+    if (parent.isValid())
         setParent(handle, parent);
-    }
-
     return handle;
 }
 
@@ -70,15 +70,13 @@ void Scene::destroyNode(NodeHandle handle) {
 
     // Recursively destroy children
     std::vector<NodeHandle> childrenCopy = node->children;  // Copy because destroyNode modifies the list
-    for (NodeHandle child : childrenCopy) {
+    for (NodeHandle child : childrenCopy)
         destroyNode(child);
-    }
 
     // Remove from name lookup
     auto it = nameToHandle.find(node->name);
-    if (it != nameToHandle.end() && it->second == handle) {
+    if (it != nameToHandle.end() && it->second == handle)
         nameToHandle.erase(it);
-    }
 
     // Remove from active nodes list
     activeNodes.erase(std::remove(activeNodes.begin(), activeNodes.end(), handle), activeNodes.end());
@@ -99,21 +97,18 @@ const SceneNode* Scene::getNode(NodeHandle handle) const {
     return &nodes[handle.index];
 }
 
-NodeHandle Scene::findNode(const std::string& nodeName) const {
+NodeHandle Scene::findNode(const str& nodeName) const {
     auto it = nameToHandle.find(nodeName);
-    if (it != nameToHandle.end()) {
+    if (it != nameToHandle.end())
         return it->second;
-    }
     return NodeHandle{};  // Invalid handle
 }
 
-std::vector<NodeHandle> Scene::findNodesWithPrefix(const std::string& prefix) const {
+std::vector<NodeHandle> Scene::findNodesWithPrefix(const str& prefix) const {
     std::vector<NodeHandle> results;
-    for (const auto& [name, handle] : nameToHandle) {
-        if (name.find(prefix) == 0) {  // Starts with prefix
+    for (const auto& [name, handle] : nameToHandle)
+        if (name.find(prefix) == 0)
             results.push_back(handle);
-        }
-    }
     return results;
 }
 
@@ -245,29 +240,23 @@ std::vector<Scene::RenderBatch> Scene::getRenderBatches() const {
 
         // CRITICAL: Check if model pointer is valid
         const Model* model = node->renderData->model;
-        if (!model) {
+        if (!model)
             continue;  // Skip nodes with null model pointer
-        }
 
         bool isTransparent = node->renderData->isTransparent;
 
-        if (isTransparent) {
+        if (isTransparent)
             transparentBatches[model].push_back(const_cast<SceneNode*>(node));
-        } else {
+        else
             opaqueBatches[model].push_back(const_cast<SceneNode*>(node));
-        }
     }
 
     // Build render batches: opaque first, then transparent
     std::vector<RenderBatch> batches;
-
-    for (const auto& [model, nodeList] : opaqueBatches) {
+    for (const auto& [model, nodeList] : opaqueBatches)
         batches.push_back(RenderBatch{model, nodeList, false});
-    }
-
-    for (const auto& [model, nodeList] : transparentBatches) {
+    for (const auto& [model, nodeList] : transparentBatches)
         batches.push_back(RenderBatch{model, nodeList, true});
-    }
 
     return batches;
 }
@@ -277,9 +266,8 @@ void Scene::collectVisibleNodes(const glm::mat4& viewProj, std::vector<SceneNode
     // For now, collect all ACTIVE nodes with render data (skips freed nodes)
     for (const NodeHandle& handle : activeNodes) {
         const SceneNode* node = getNode(handle);
-        if (node && node->renderData && node->renderData->isVisible) {
+        if (node && node->renderData && node->renderData->isVisible)
             outNodes.push_back(const_cast<SceneNode*>(node));
-        }
     }
 }
 

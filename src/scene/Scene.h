@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "../core/Types.h"
 #include "SceneNode.h"
 
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
 #include <vector>
-
 namespace DownPour {
+typedef std::string str;
+using namespace DownPour::Types;
 
 /**
  * @brief Scene graph with hierarchical transforms and spatial organization
@@ -23,7 +25,7 @@ public:
      * @brief Construct a new Scene
      * @param name Scene name (e.g., "menu", "garage", "driving")
      */
-    Scene(const std::string& name);
+    Scene(const str& name);
     ~Scene() = default;
 
     // Disable copy (scenes manage unique resources)
@@ -31,14 +33,14 @@ public:
     Scene& operator=(const Scene&) = delete;
 
     // Node creation and management
-    NodeHandle createNode(const std::string& name);
-    NodeHandle createNode(const std::string& name, NodeHandle parent);
+    NodeHandle createNode(const str& name);
+    NodeHandle createNode(const str& name, NodeHandle parent);
     void       destroyNode(NodeHandle handle);
 
     SceneNode*              getNode(NodeHandle handle);
     const SceneNode*        getNode(NodeHandle handle) const;
-    NodeHandle              findNode(const std::string& name) const;
-    std::vector<NodeHandle> findNodesWithPrefix(const std::string& prefix) const;
+    NodeHandle              findNode(const str& name) const;
+    std::vector<NodeHandle> findNodesWithPrefix(const str& prefix) const;
 
     // Hierarchy manipulation
     void                    setParent(NodeHandle child, NodeHandle parent);
@@ -61,16 +63,16 @@ public:
     void                     collectVisibleNodes(const glm::mat4& viewProj, std::vector<SceneNode*>& outNodes) const;
 
     // Scene management
-    void               clear();
-    const std::string& getName() const { return name; }
-    size_t             getNodeCount() const { return nodes.size() - freeList.size(); }
+    void       clear();
+    const str& getName() const { return name; }
+    size_t     getNodeCount() const { return nodes.size() - freeList.size(); }
 
     // Serialization (future)
     // void saveToFile(const std::string& filepath) const;
     // void loadFromFile(const std::string& filepath);
 
 private:
-    std::string name;
+    str name;
 
     // Flat array of nodes (better cache performance than tree of pointers)
     std::vector<SceneNode> nodes;
@@ -83,10 +85,10 @@ private:
     std::vector<NodeHandle> activeNodes;
 
     // Name lookup cache
-    std::unordered_map<std::string, NodeHandle> nameToHandle;
+    std::unordered_map<str, NodeHandle> nameToHandle;
 
     // Helper methods
-    void     propagateTransform(NodeHandle handle, const glm::mat4& parentWorld);
+    void     propagateTransform(NodeHandle handle, const Mat4& parentWorld);
     bool     isHandleValid(NodeHandle handle) const;
     uint32_t allocateNodeSlot();
     void     freeNodeSlot(uint32_t index);
