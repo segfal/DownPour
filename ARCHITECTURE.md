@@ -213,89 +213,137 @@ Object diagrams document the structural relationships between components.
 
 ### Core Application Architecture
 
-The main application class orchestrates all major subsystems.
+The application has been refactored (2026-01-25) to extract Vulkan subsystems into focused managers, reducing the Application class from 1,937 lines to ~800 lines.
 
 ```mermaid
 classDiagram
     class Application {
         -GLFWwindow* window
         -Camera camera
-        -Model carModel
-        -Model roadModel
+        -VulkanContext vulkanContext
+        -SwapChainManager swapChainManager
+        -SceneManager sceneManager
+        -Model* carModel
+        -Model* roadModel
         -WeatherSystem weatherSystem
         -WindshieldSurface windshield
-        -VkInstance instance
-        -VkDevice device
-        -VkQueue graphicsQueue
-        -VkQueue presentQueue
-        -VkSwapchainKHR swapchain
+        -MaterialManager* materialManager
         +run()
         +initWindow()
         +initVulkan()
         +mainLoop()
         +cleanup()
     }
-    
+
+    class VulkanContext {
+        <<Core Subsystem>>
+        -VkInstance instance
+        -VkPhysicalDevice physicalDevice
+        -VkDevice device
+        -VkSurfaceKHR surface
+        -VkQueue graphicsQueue
+        -VkQueue presentQueue
+        +initialize(window)
+        +cleanup()
+        +getDevice() VkDevice
+        +getPhysicalDevice() VkPhysicalDevice
+        +getGraphicsQueue() VkQueue
+        +findQueueFamilies()
+    }
+
+    class SwapChainManager {
+        <<Core Subsystem>>
+        -VkSwapchainKHR swapchain
+        -VkRenderPass renderPass
+        -vector~VkFramebuffer~ framebuffers
+        -vector~VkImageView~ imageViews
+        +initialize(device, surface, window)
+        +cleanup(device)
+        +getSwapChain() VkSwapchainKHR
+        +getRenderPass() VkRenderPass
+        +getExtent() VkExtent2D
+    }
+
+    class PipelineFactory {
+        <<Static Utility>>
+        +createPipeline(config, renderPass) VkPipeline$
+        +createPipelineLayout(layouts) VkPipelineLayout$
+        -loadShaderModule(filepath) VkShaderModule$
+        -readFile(filepath) vector~char~$
+    }
+
+    class ResourceManager {
+        <<Static Utility>>
+        +createBuffer(size, usage) VkBuffer$
+        +copyBuffer(src, dst, size)$
+        +createImage(width, height, format) VkImage$
+        +findMemoryType(filter) uint32_t$
+        +findDepthFormat() VkFormat$
+    }
+
     class Camera {
         -vec3 position
         -vec3 forward
-        -vec3 right
-        -vec3 up
         -float pitch
         -float yaw
-        -float fov
         +getViewMatrix() mat4
         +getProjectionMatrix() mat4
         +processInput()
-        +processMouseMovement()
     }
-    
+
     class Model {
-        -vector~Vertex~ vertices
-        -vector~uint32_t~ indices
+        -ModelGeometry geometry
         -vector~Material~ materials
-        -vector~NamedMesh~ namedMeshes
-        -VkBuffer vertexBuffer
-        -VkBuffer indexBuffer
+        -vector~glTFNode~ nodes
+        -mat4 modelMatrix
         +loadFromFile()
         +cleanup()
-        +getMeshByName()
+        +getVertexBuffer() VkBuffer
+        +getMeshByName() NamedMesh
     }
-    
-    class WeatherSystem {
-        -WeatherState currentState
-        -vector~Raindrop~ raindrops
-        +toggleWeather()
-        +update(deltaTime)
-        +render()
-        +getActiveDrops()
+
+    class ModelGeometry {
+        -VkBuffer vertexBuffer
+        -VkBuffer indexBuffer
+        -VkDeviceMemory vertexMemory
+        -VkDeviceMemory indexMemory
+        +createBuffers(vertices, indices)
+        +cleanup(device)
     }
-    
-    class WindshieldSurface {
-        -bool wiperActive
-        -float wiperAngle
-        -VkImage wetnessMap
-        -VkImage flowMap
-        +update(deltaTime)
-        +setWiperActive(bool)
-        +getWiperAngle() float
+
+    class GLTFLoader {
+        <<Static Utility>>
+        +load(filepath, Model&) bool$
+        -resolveTexturePath()$
+        -processGLTFTexture()$
     }
-    
+
+    Application *-- VulkanContext: contains
+    Application *-- SwapChainManager: contains
     Application *-- Camera: contains
     Application *-- Model: contains 2
-    Application *-- WeatherSystem: contains
-    Application *-- WindshieldSurface: contains
-    Application --> VkInstance: uses
-    Application --> VkDevice: uses
-    
-    note for Application "Central coordinator managing\nall rendering, simulation,\nand Vulkan resources"
+    Application ..> PipelineFactory: uses
+    Application ..> ResourceManager: uses
+    Model *-- ModelGeometry: contains
+    Model ..> GLTFLoader: loaded by
+
+    note for Application "Reduced from 1937 to ~800 lines\nby extracting subsystems"
+
+    note for VulkanContext "~200 lines\nManages instance, device,\nsurface, queues"
+
+    note for SwapChainManager "~250 lines\nManages swap chain,\nrender pass, framebuffers"
+
+    note for PipelineFactory "~200 lines\nStatic pipeline creation\nwith shader loading"
+
+    note for ResourceManager "~150 lines\nStatic buffer/image\ncreation utilities"
 ```
 
-**Key Relationships:**
-- **Composition:** Application owns and manages lifetime of all subsystems
-- **Vulkan Resources:** Application holds device, queues, and swapchain
-- **Dual Models:** Separate Model instances for car and road
-- **Frame State:** Camera, car position, and weather updated each frame
+**Key Architectural Changes (2026-01-25):**
+- **Separation of Concerns:** Vulkan subsystems extracted into focused managers
+- **Static Utilities:** PipelineFactory, ResourceManager, GLTFLoader provide reusable creation logic
+- **Reduced Complexity:** Application class now coordinates high-level flow, delegates resource management
+- **Model Refactoring:** Model reduced from 710 to ~100 lines by extracting GLTFLoader and ModelGeometry
+- **Maintained API Compatibility:** All existing code continues to work with new architecture
 
 ---
 
@@ -381,17 +429,18 @@ classDiagram
 
 ### Model Loading Architecture
 
-The Model class encapsulates GLTF loading with material and mesh management.
+The Model system has been refactored (2026-01-25) to separate concerns: GLTF parsing, data storage, and GPU resource management.
 
 ```mermaid
 classDiagram
     class Model {
+        <<Data Container>>
         -vector~Vertex~ vertices
         -vector~uint32_t~ indices
         -vector~Material~ materials
         -vector~NamedMesh~ namedMeshes
-        -VkBuffer vertexBuffer
-        -VkBuffer indexBuffer
+        -vector~glTFNode~ nodes
+        -ModelGeometry geometry
         -glm::mat4 modelMatrix
         -glm::vec3 minBounds
         -glm::vec3 maxBounds
@@ -399,8 +448,31 @@ classDiagram
         +cleanup(device)
         +getMeshByName(name)
         +getMeshesByPrefix(prefix)
+        +getVertexBuffer() VkBuffer
+        +getIndexBuffer() VkBuffer
     }
-    
+
+    class GLTFLoader {
+        <<Static Utility>>
+        +load(filepath, Model&) bool$
+        -resolveTexturePath(path, uri) string$
+        -processGLTFTexture(...)$
+    }
+
+    class ModelGeometry {
+        <<GPU Resources>>
+        -VkBuffer vertexBuffer
+        -VkBuffer indexBuffer
+        -VkDeviceMemory vertexMemory
+        -VkDeviceMemory indexMemory
+        -uint32_t indexCount
+        +createBuffers(vertices, indices)
+        +cleanup(device)
+        +getVertexBuffer() VkBuffer
+        +getIndexBuffer() VkBuffer
+        +getIndexCount() uint32_t
+    }
+
     class Material {
         +VkImage textureImage
         +VkImageView textureImageView
@@ -413,7 +485,7 @@ classDiagram
         +bool isTransparent
         +float alphaValue
     }
-    
+
     class NamedMesh {
         +string name
         +string nodeName
@@ -423,33 +495,62 @@ classDiagram
         +uint32_t indexCount
         +glm::mat4 transform
     }
-    
+
     class Vertex {
         +glm::vec3 position
         +glm::vec3 normal
         +glm::vec2 texCoord
     }
-    
+
+    class tinygltf {
+        <<External Library>>
+        TinyGLTF loader
+    }
+
+    Model *-- ModelGeometry: contains
     Model *-- "0..*" Material: contains
     Model *-- "0..*" NamedMesh: contains
     Model *-- "0..*" Vertex: contains
-    
+    GLTFLoader ..> Model: populates
+    GLTFLoader ..> tinygltf: uses
+    ModelGeometry ..> ResourceManager: uses
+
+    note for Model "Reduced from 710 to ~100 lines\nPure data container\nDelegates to subsystems"
+
+    note for GLTFLoader "~400 lines\nParses GLTF/GLB files\nPopulates Model data structures"
+
+    note for ModelGeometry "~180 lines\nManages Vulkan buffers\nSeparate from parsing logic"
+
     note for Material "PBR material system\nwith multiple texture maps\nand transparency support"
-    
+
     note for NamedMesh "Allows querying specific\ncar parts by name\n(steering wheel, wipers, etc)"
-    
-    note for Model "Loads GLTF/GLB format\nusing tinygltf library\nGenerates bounding boxes"
 ```
 
-**Implementation:** [`src/renderer/Model.h`](src/renderer/Model.h), [`src/renderer/Model.cpp`](src/renderer/Model.cpp)
+**Implementation:**
+- [`src/renderer/Model.h`](src/renderer/Model.h) / [`.cpp`](src/renderer/Model.cpp) - Pure data container (~100 lines, was 710)
+- [`src/renderer/GLTFLoader.h`](src/renderer/GLTFLoader.h) / [`.cpp`](src/renderer/GLTFLoader.cpp) - GLTF parsing (~400 lines)
+- [`src/renderer/ModelGeometry.h`](src/renderer/ModelGeometry.h) / [`.cpp`](src/renderer/ModelGeometry.cpp) - GPU buffers (~180 lines)
+
+**Key Architectural Changes (2026-01-25):**
+- **Separation of Concerns:** Parsing (GLTFLoader) vs. Storage (Model) vs. GPU (ModelGeometry)
+- **Testability:** Can test GLTFLoader without Vulkan, can test geometry without parsing
+- **Reusability:** GLTFLoader can be used with different data structures if needed
+- **Simplicity:** Model.cpp reduced by 72%, easier to understand and maintain
+
+**Loading Flow:**
+1. `Model::loadFromFile(filepath, ...)` called
+2. `GLTFLoader::load(filepath, model)` parses GLTF, populates vertices/indices/materials
+3. `ModelGeometry::createBuffers(...)` creates Vulkan buffers from parsed data
+4. Model ready for rendering with `getVertexBuffer()` / `getIndexBuffer()`
 
 **Key Points:**
-- **GLTF Support:** Loads both ASCII (.gltf) and binary (.glb) formats
+- **GLTF Support:** Loads both ASCII (.gltf) and binary (.glb) formats via tinygltf
 - **Material System:** Each material tracks texture resources and index range
 - **PBR Textures:** Base color, normal, metallic-roughness, emissive maps
 - **Named Meshes:** Query by name for animation (steering wheel, wipers)
 - **Transparency Detection:** Reads glTF alphaMode and baseColorFactor
 - **Bounding Box:** Calculated during load for physics and camera positioning
+- **Friend Access:** GLTFLoader declared as friend of Model to access private data directly
 
 ---
 
