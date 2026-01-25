@@ -74,6 +74,7 @@ DownPour/
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture with Mermaid diagrams (state machines, object relationships)
 - **[MATH.md](MATH.md)** - Mathematical reference with all formulas and equations used in the codebase
 - **[CODING_STANDARDS.md](CODING_STANDARDS.md)** - Code style guidelines and best practices
+- **[docs/COMMIT_SQUASHING_GUIDE.md](docs/COMMIT_SQUASHING_GUIDE.md)** - Guide for cleaning up commit history
 
 ## Code Organization
 
