@@ -35,10 +35,10 @@ struct VulkanCoreContext {
     VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
 
     // Swapchain resources
-    VkSwapchainKHR swapchain             = VK_NULL_HANDLE;
-    VkFormat       swapchain_format      = VK_FORMAT_UNDEFINED;
-    VkExtent2D     swapchain_extent      = {0, 0};
-    VkRenderPass   render_pass           = VK_NULL_HANDLE;
+    VkSwapchainKHR swapchain        = VK_NULL_HANDLE;
+    VkFormat       swapchain_format = VK_FORMAT_UNDEFINED;
+    VkExtent2D     swapchain_extent = {0, 0};
+    VkRenderPass   render_pass      = VK_NULL_HANDLE;
 
     /**
      * @brief Check if core context is fully initialized

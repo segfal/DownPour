@@ -2,10 +2,10 @@
 
 #include <vulkan/vulkan.h>
 
-#include <string>
-#include <unordered_map>
 #include <functional>
 #include <map>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace DownPour {
@@ -97,19 +97,15 @@ struct Material {
     uint32_t indexCount = 0;
 
     // Helper to check if we have a base color texture (path or embedded)
-    bool hasBaseColorTexture() const {
-        return !baseColorTexture.empty() || embeddedBaseColor.isValid();
-    }
+    bool hasBaseColorTexture() const { return !baseColorTexture.empty() || embeddedBaseColor.isValid(); }
 };
 
 struct MaterialDispatcher {
-    std::string name;
-    std::function<bool(const Material&)> dispatchFunction;
+    std::string                                                 name;
+    std::function<bool(const Material&)>                        dispatchFunction;
     std::map<std::string, std::function<bool(const Material&)>> textureChecks;
 
-    bool dispatch(const Material& material) {
-        return dispatchFunction(material);
-    }
+    bool dispatch(const Material& material) { return dispatchFunction(material); }
 
     bool checkTexture(const std::string& name, const Material& material) {
         auto it = textureChecks.find(name);
@@ -119,15 +115,16 @@ struct MaterialDispatcher {
     void addTextureCheck(const std::string& name, std::function<bool(const Material&)> checkFunc) {
         textureChecks[name] = checkFunc;
     }
-    
-    MaterialDispatcher(const Material& material){//lambdas to check if empty
-        textureChecks["baseColor"] = [](const Material& material) { return material.baseColorTexture.empty(); };
-        textureChecks["normalMap"] = [](const Material& material) { return material.normalMapTexture.empty(); };
-        textureChecks["metallicRoughness"] = [](const Material& material) { return material.metallicRoughnessTexture.empty(); };
+
+    MaterialDispatcher(const Material& material) {  // lambdas to check if empty
+        textureChecks["baseColor"]         = [](const Material& material) { return material.baseColorTexture.empty(); };
+        textureChecks["normalMap"]         = [](const Material& material) { return material.normalMapTexture.empty(); };
+        textureChecks["metallicRoughness"] = [](const Material& material) {
+            return material.metallicRoughnessTexture.empty();
+        };
         textureChecks["emissive"] = [](const Material& material) { return material.emissiveTexture.empty(); };
     }
 };
-
 
 /**
  * @brief Vulkan-specific material resources
@@ -136,11 +133,11 @@ struct MaterialDispatcher {
  * Managed by MaterialManager, not exposed to external code.
  */
 struct VulkanMaterialResources {
-    TextureHandle   baseColor;
-    TextureHandle   normalMap;
-    TextureHandle   metallicRoughness;
-    TextureHandle   emissive;
-    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;  // Binds all textures
+    TextureHandle                   baseColor;
+    TextureHandle                   normalMap;
+    TextureHandle                   metallicRoughness;
+    TextureHandle                   emissive;
+    std::vector<VkDescriptorSet>    descriptorSets;  // Per-frame descriptor sets
 
     bool hasAnyTextures() const {
         return baseColor.isValid() || normalMap.isValid() || metallicRoughness.isValid() || emissive.isValid();
@@ -253,9 +250,13 @@ private:
     std::unordered_map<uint32_t, MaterialProperties>      properties;
     uint32_t                                              nextMaterialId;
 
+    // Default textures for materials without specific textures
+    TextureHandle defaultWhiteTexture;
+
     // Helper methods for texture loading
     TextureHandle loadTexture(const std::string& path);
     TextureHandle loadTextureFromData(const EmbeddedTexture& embeddedTex);
+    TextureHandle createDefaultWhiteTexture();
     void          createTextureImage(const unsigned char* pixels, const int width, const int height, const int channels,
                                      TextureHandle& outTexture);
     void          createTextureImageView(TextureHandle& texture);

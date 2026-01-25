@@ -11,18 +11,18 @@ Scene::Scene(const std::string& name) : name(name) {}
 NodeHandle Scene::createNode(const std::string& nodeName) {
     uint32_t index = allocateNodeSlot();
 
-    SceneNode& node  = nodes[index];
-    node.name        = nodeName;
-    node.generation  = node.generation + 1;  // Increment generation for new node
-    node.parent      = NodeHandle{};         // No parent (invalid handle)
+    SceneNode& node = nodes[index];
+    node.name       = nodeName;
+    node.generation = node.generation + 1;  // Increment generation for new node
+    node.parent     = NodeHandle{};         // No parent (invalid handle)
     node.children.clear();
-    node.localPosition = glm::vec3(0.0f);
-    node.localRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-    node.localScale    = glm::vec3(1.0f);
+    node.localPosition  = glm::vec3(0.0f);
+    node.localRotation  = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    node.localScale     = glm::vec3(1.0f);
     node.worldTransform = glm::mat4(1.0f);
-    node.isDirty       = true;
-    node.renderData    = std::nullopt;
-    node.isStatic      = true;
+    node.isDirty        = true;
+    node.renderData     = std::nullopt;
+    node.isStatic       = true;
 
     NodeHandle handle{index, node.generation};
 
@@ -239,7 +239,7 @@ std::vector<Scene::RenderBatch> Scene::getRenderBatches() const {
         const SceneNode* node = getNode(handle);
         if (!node)
             continue;
-        
+
         if (!node->renderData || !node->renderData->isVisible)
             continue;
 

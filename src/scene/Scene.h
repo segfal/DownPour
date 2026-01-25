@@ -4,7 +4,6 @@
 #include "SceneNode.h"
 
 #include <glm/glm.hpp>
-
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -36,9 +35,9 @@ public:
     NodeHandle createNode(const std::string& name, NodeHandle parent);
     void       destroyNode(NodeHandle handle);
 
-    SceneNode*       getNode(NodeHandle handle);
-    const SceneNode* getNode(NodeHandle handle) const;
-    NodeHandle       findNode(const std::string& name) const;
+    SceneNode*              getNode(NodeHandle handle);
+    const SceneNode*        getNode(NodeHandle handle) const;
+    NodeHandle              findNode(const std::string& name) const;
     std::vector<NodeHandle> findNodesWithPrefix(const std::string& prefix) const;
 
     // Hierarchy manipulation
@@ -59,7 +58,7 @@ public:
     };
 
     std::vector<RenderBatch> getRenderBatches() const;
-    void collectVisibleNodes(const glm::mat4& viewProj, std::vector<SceneNode*>& outNodes) const;
+    void                     collectVisibleNodes(const glm::mat4& viewProj, std::vector<SceneNode*>& outNodes) const;
 
     // Scene management
     void               clear();

@@ -1,12 +1,12 @@
 #include "Material.h"
 
 #include <stb_image.h>
-
-#include <iostream>
-#include <stdexcept>
 #include <vulkan/vulkan.h>
+
 #include <functional>
+#include <iostream>
 #include <map>
+#include <stdexcept>
 namespace DownPour {
 
 MaterialManager::MaterialManager(VkDevice device, VkPhysicalDevice physicalDevice, VkCommandPool commandPool,
@@ -18,21 +18,27 @@ MaterialManager::MaterialManager(VkDevice device, VkPhysicalDevice physicalDevic
       descriptorSetLayout(VK_NULL_HANDLE),
       descriptorPool(VK_NULL_HANDLE),
       maxFramesInFlight(0) {
-    std::cout << "MaterialManager initialized\n";
+    // Create default white texture for materials without baseColor textures
+    defaultWhiteTexture = createDefaultWhiteTexture();
 }
 
-MaterialManager::~MaterialManager() {}
+MaterialManager::~MaterialManager() {
+    // Don't destroy default texture here - it's cleaned up in cleanup()
+}
 
 uint32_t MaterialManager::createMaterial(const Material& material) {
     uint32_t id = nextMaterialId++;
 
     VulkanMaterialResources gpuResources;
 
-    // Load base color texture (prefer embedded, fallback to file path)
+    // Load base color texture (prefer embedded, fallback to file path, then default white)
     if (material.embeddedBaseColor.isValid()) {
         gpuResources.baseColor = loadTextureFromData(material.embeddedBaseColor);
     } else if (!material.baseColorTexture.empty()) {
         gpuResources.baseColor = loadTexture(material.baseColorTexture);
+    } else {
+        // Use default white texture for materials with only baseColorFactor
+        gpuResources.baseColor = defaultWhiteTexture;
     }
 
     // Load normal map
@@ -90,7 +96,7 @@ uint32_t MaterialManager::createMaterial(const Material& material) {
             vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
         }
 
-        gpuResources.descriptorSet = matDescriptorSets[0];
+        gpuResources.descriptorSets = matDescriptorSets;  // Store ALL frames
     }
 
     // Store resources and properties
@@ -113,14 +119,14 @@ void MaterialManager::createDescriptorSetsForExistingMaterials() {
         return;
     }
 
-    size_t createdCount = 0;
-    size_t skippedNoTexture = 0;
+    size_t createdCount      = 0;
+    size_t skippedNoTexture  = 0;
     size_t skippedAlreadyHas = 0;
 
     // Iterate through all existing materials and create descriptor sets
     for (auto& [id, gpuResources] : resources) {
-        // Skip if descriptor set already exists
-        if (gpuResources.descriptorSet != VK_NULL_HANDLE) {
+        // Skip if descriptor sets already exist
+        if (!gpuResources.descriptorSets.empty()) {
             skippedAlreadyHas++;
             continue;
         }
@@ -132,9 +138,9 @@ void MaterialManager::createDescriptorSetsForExistingMaterials() {
         }
 
         // Allocate descriptor sets for all frames
-        std::vector<VkDescriptorSet>        matDescriptorSets(maxFramesInFlight);
-        std::vector<VkDescriptorSetLayout>  layouts(maxFramesInFlight, descriptorSetLayout);
-        VkDescriptorSetAllocateInfo         allocInfo{};
+        std::vector<VkDescriptorSet>       matDescriptorSets(maxFramesInFlight);
+        std::vector<VkDescriptorSetLayout> layouts(maxFramesInFlight, descriptorSetLayout);
+        VkDescriptorSetAllocateInfo        allocInfo{};
         allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocInfo.descriptorPool     = descriptorPool;
         allocInfo.descriptorSetCount = maxFramesInFlight;
@@ -164,13 +170,10 @@ void MaterialManager::createDescriptorSetsForExistingMaterials() {
             vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
         }
 
-        gpuResources.descriptorSet = matDescriptorSets[0];
+        gpuResources.descriptorSets = matDescriptorSets;  // Store ALL frames
         createdCount++;
     }
 
-    std::cout << "MaterialManager: Created " << createdCount << " descriptor sets, "
-              << "skipped " << skippedNoTexture << " (no texture), "
-              << "skipped " << skippedAlreadyHas << " (already has)" << std::endl;
 }
 
 VkDescriptorSet MaterialManager::getDescriptorSet(uint32_t materialId, uint32_t frameIndex) const {
@@ -178,7 +181,12 @@ VkDescriptorSet MaterialManager::getDescriptorSet(uint32_t materialId, uint32_t 
     if (it == resources.end()) {
         throw std::runtime_error("Material ID " + std::to_string(materialId) + " not found");
     }
-    return it->second.descriptorSet;
+
+    // Return the descriptor set for the requested frame
+    if (frameIndex >= it->second.descriptorSets.size()) {
+        return VK_NULL_HANDLE;  // No descriptor set for this frame
+    }
+    return it->second.descriptorSets[frameIndex];
 }
 
 void MaterialManager::bindMaterial(uint32_t materialId, VkCommandBuffer cmd, VkPipelineLayout layout) {
@@ -187,8 +195,8 @@ void MaterialManager::bindMaterial(uint32_t materialId, VkCommandBuffer cmd, VkP
         throw std::runtime_error("Material ID " + std::to_string(materialId) + " not found");
 
     const auto& res = it->second;
-    if (res.descriptorSet != VK_NULL_HANDLE) {
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &res.descriptorSet, 0, nullptr);
+    if (!res.descriptorSets.empty() && res.descriptorSets[0] != VK_NULL_HANDLE) {
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &res.descriptorSets[0], 0, nullptr);
     }
 }
 
@@ -203,7 +211,10 @@ const MaterialProperties& MaterialManager::getProperties(uint32_t materialId) co
 void MaterialManager::cleanup() {
     for (auto& pair : resources) {
         auto& res = pair.second;
-        destroyTextureHandle(res.baseColor);
+        // Don't destroy baseColor if it's the default texture (shared resource)
+        if (res.baseColor.image != defaultWhiteTexture.image) {
+            destroyTextureHandle(res.baseColor);
+        }
         destroyTextureHandle(res.normalMap);
         destroyTextureHandle(res.metallicRoughness);
         destroyTextureHandle(res.emissive);
@@ -211,6 +222,9 @@ void MaterialManager::cleanup() {
 
     resources.clear();
     properties.clear();
+
+    // Clean up default texture
+    destroyTextureHandle(defaultWhiteTexture);
 }
 
 // ============================================================================
@@ -233,13 +247,31 @@ TextureHandle MaterialManager::loadTexture(const std::string& path) {
         createTextureImageView(texture);
         createTextureSampler(texture);
 
-        std::cout << "Loaded texture: " << path << " (" << texWidth << "x" << texHeight << ")\n";
     } catch (const std::exception& e) {
         std::cerr << "Error loading texture " << path << ": " << e.what() << "\n";
         destroyTextureHandle(texture);
     }
 
     stbi_image_free(pixels);
+    return texture;
+}
+
+TextureHandle MaterialManager::createDefaultWhiteTexture() {
+    TextureHandle texture;
+
+    // Create a 1x1 white pixel (RGBA = 255, 255, 255, 255)
+    unsigned char whitePixel[4] = {255, 255, 255, 255};
+
+    try {
+        createTextureImage(whitePixel, 1, 1, 4, texture);
+        createTextureImageView(texture);
+        createTextureSampler(texture);
+        std::cout << "Created default white texture (1x1)\n";
+    } catch (const std::exception& e) {
+        std::cerr << "Error creating default white texture: " << e.what() << "\n";
+        destroyTextureHandle(texture);
+    }
+
     return texture;
 }
 
@@ -371,8 +403,7 @@ void MaterialManager::destroyTextureHandle(TextureHandle& texture) {
 
 void MaterialManager::createImage(const uint32_t width, const uint32_t height, const VkFormat format,
                                   const VkImageTiling tiling, const VkImageUsageFlags usage,
-                                  const VkMemoryPropertyFlags properties, VkImage& image,
-                                  VkDeviceMemory& imageMemory) {
+                                  const VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType     = VK_IMAGE_TYPE_2D;
@@ -521,4 +552,4 @@ uint32_t MaterialManager::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFl
     throw std::runtime_error("Failed to find suitable memory type");
 }
 
-}  
+}  // namespace DownPour

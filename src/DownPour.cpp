@@ -1,5 +1,6 @@
 #include "DownPour.h"
 
+#include "logger/Logger.h"
 #include "vulkan/VulkanTypes.h"
 
 #include <algorithm>
@@ -21,9 +22,7 @@ std::vector<char> readFile(const std::string& filename) {
 
     for (const auto& path : candidates) {
         std::ifstream file(path, std::ios::ate | std::ios::binary);
-        if (!file.is_open()) {
-            continue;
-        }
+        if (!file.is_open()) continue;
         const size_t      fileSize = static_cast<size_t>(file.tellg());
         std::vector<char> buffer(fileSize);
         file.seekg(0);
@@ -90,9 +89,6 @@ void Application::initVulkan() {
     windshield.initialize(device, physicalDevice, commandPool, graphicsQueue);
     createWindshieldPipeline();
 
-    // Initialize debug visualization
-    createDebugPipeline();
-    createDebugMarkers();
 
     createSyncObjects();
 
@@ -103,52 +99,31 @@ void Application::initVulkan() {
     camera.setFOV(75.0f);
     // Set far plane to 10km so we can see the entire 6.5km road
     camera.setFarPlane(10000.0f);
-    lastFrameTime = glfwGetTime();
 
-    // Set initial camera to cockpit view
-    updateCameraForCockpit();
+    // Set initial camera mode to Cockpit
+    camera.setMode(CameraMode::Cockpit);
+    camera.setCockpitOffset(cockpitOffset);
+
+    lastFrameTime = glfwGetTime();
 }
 
 void Application::cleanup() {
-    // Clean up debug visualization resources
-    if (debugVertexBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, debugVertexBuffer, nullptr);
-    }
-    if (debugVertexBufferMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, debugVertexBufferMemory, nullptr);
-    }
-    if (debugPipeline != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, debugPipeline, nullptr);
-    }
-    if (debugPipelineLayout != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(device, debugPipelineLayout, nullptr);
-    }
-
     // Clean up windshield resources
     windshield.cleanup(device);
-    if (windshieldPipeline != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, windshieldPipeline, nullptr);
-    }
-    if (windshieldPipelineLayout != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(device, windshieldPipelineLayout, nullptr);
-    }
-    if (windshieldDescriptorLayout != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(device, windshieldDescriptorLayout, nullptr);
+    safeDestroy(windshieldPipeline, vkDestroyPipeline);
+    safeDestroy(windshieldPipelineLayout, vkDestroyPipelineLayout);
+    safeDestroy(windshieldDescriptorLayout, vkDestroyDescriptorSetLayout);
+
+    safeDestroy(depthImageView, vkDestroyImageView);
+    safeDestroy(depthImage, vkDestroyImage);
+    if (depthImageMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, depthImageMemory, nullptr);
+        depthImageMemory = VK_NULL_HANDLE;
     }
 
-    vkDestroyImageView(device, depthImageView, nullptr);
-    vkDestroyImage(device, depthImage, nullptr);
-    vkFreeMemory(device, depthImageMemory, nullptr);
-
-    for (auto framebuffer : swapchainFramebuffers) {
-        vkDestroyFramebuffer(device, framebuffer, nullptr);
-    }
-    for (auto imageView : swapchainImageViews) {
-        vkDestroyImageView(device, imageView, nullptr);
-    }
-    if (renderPass != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(device, renderPass, nullptr);
-    }
+    for (auto framebuffer : swapchainFramebuffers) vkDestroyFramebuffer(device, framebuffer, nullptr);
+    for (auto imageView : swapchainImageViews) vkDestroyImageView(device, imageView, nullptr);
+    safeDestroy(renderPass, vkDestroyRenderPass);
 
     // Clean up sync objects
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -157,8 +132,8 @@ void Application::cleanup() {
         vkDestroyFence(device, inFlightFences[i], nullptr);
     }
 
-    vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-    vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+    safeDestroy(descriptorPool, vkDestroyDescriptorPool);
+    safeDestroy(descriptorSetLayout, vkDestroyDescriptorSetLayout);
 
     // Clean up material manager
     if (materialManager) {
@@ -177,36 +152,20 @@ void Application::cleanup() {
         delete carModelPtr;
         carModelPtr = nullptr;
     }
-    if (carPipeline != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, carPipeline, nullptr);
-    }
-    if (carTransparentPipeline != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, carTransparentPipeline, nullptr);
-    }
-    if (carPipelineLayout != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(device, carPipelineLayout, nullptr);
-    }
-    if (carDescriptorSetLayout != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(device, carDescriptorSetLayout, nullptr);
-    }
-    if (carDescriptorPool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(device, carDescriptorPool, nullptr);
-    }
+    safeDestroy(carPipeline, vkDestroyPipeline);
+    safeDestroy(carTransparentPipeline, vkDestroyPipeline);
+    safeDestroy(carPipelineLayout, vkDestroyPipelineLayout);
+    safeDestroy(carDescriptorSetLayout, vkDestroyDescriptorSetLayout);
+    safeDestroy(carDescriptorPool, vkDestroyDescriptorPool);
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroyBuffer(device, uniformBuffers[i], nullptr);
         vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
     }
 
-    if (commandPool != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(device, commandPool, nullptr);
-    }
-    if (graphicsPipeline != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, graphicsPipeline, nullptr);
-    }
-    if (pipelineLayout != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-    }
+    safeDestroy(commandPool, vkDestroyCommandPool);
+    safeDestroy(graphicsPipeline, vkDestroyPipeline);
+    safeDestroy(pipelineLayout, vkDestroyPipelineLayout);
 
     // Clean up road model BEFORE destroying device
     if (roadModelPtr) {
@@ -214,12 +173,8 @@ void Application::cleanup() {
         delete roadModelPtr;
         roadModelPtr = nullptr;
     }
-    if (worldPipeline != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, worldPipeline, nullptr);
-    }
-    if (worldPipelineLayout != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(device, worldPipelineLayout, nullptr);
-    }
+    safeDestroy(worldPipeline, vkDestroyPipeline);
+    safeDestroy(worldPipelineLayout, vkDestroyPipelineLayout);
 
     vkDestroySwapchainKHR(device, swapchain, nullptr);
     vkDestroyDevice(device, nullptr);
@@ -313,9 +268,7 @@ void Application::createRenderPass() {
     std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
     renderPassInfo.attachmentCount                     = 2;
     renderPassInfo.pAttachments                        = attachments.data();
-    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create render pass!");
-    }
+    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) throw std::runtime_error("Failed to create render pass!");
 }
 
 VkShaderModule Application::createShaderModule(const std::vector<char>& code) {
@@ -325,9 +278,7 @@ VkShaderModule Application::createShaderModule(const std::vector<char>& code) {
     createInfo.pCode    = reinterpret_cast<const uint32_t*>(code.data());
 
     VkShaderModule shaderModule;
-    if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create shader module");
-    }
+    if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) throw std::runtime_error("Failed to create shader module");
     return shaderModule;
 }
 
@@ -451,9 +402,7 @@ void Application::createGraphicsPipeline() {
 }
 
 void Application::createSurface() {
-    if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create window surface!");
-    }
+    if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) throw std::runtime_error("Failed to create window surface!");
 }
 
 void Application::createInstance() {
@@ -475,10 +424,6 @@ void Application::createInstance() {
     extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 
     // Log enabled extensions
-    std::cout << "Enabled extensions:" << std::endl;
-    for (const auto& extension : extensions) {
-        std::cout << "  " << extension << std::endl;
-    }
 
     // Create Vulkan instance
     VkInstanceCreateInfo createInfo{};
@@ -489,9 +434,7 @@ void Application::createInstance() {
     createInfo.enabledLayerCount       = 0;
     createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 
-    if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create Vulkan instance!");
-    }
+    if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) throw std::runtime_error("Failed to create Vulkan instance!");
 }
 
 Vulkan::QueueFamilyIndices Application::findQueueFamilies(VkPhysicalDevice device) {
@@ -505,19 +448,13 @@ Vulkan::QueueFamilyIndices Application::findQueueFamilies(VkPhysicalDevice devic
 
     int i = 0;
     for (const auto& queueFamily : queueFamilies) {
-        if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-            indices.graphicsFamily = i;
-        }
+        if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) indices.graphicsFamily = i;
 
         VkBool32 presentSupport = false;
         vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
-        if (presentSupport) {
-            indices.presentFamily = i;
-        }
+        if (presentSupport) indices.presentFamily = i;
 
-        if (indices.isComplete()) {
-            break;
-        }
+        if (indices.isComplete()) break;
 
         i++;
     }
@@ -533,9 +470,7 @@ void Application::createCommandPool() {
     info.queueFamilyIndex = indicies.graphicsFamily.value();
     info.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
-    if (vkCreateCommandPool(device, &info, nullptr, &commandPool) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create command pool!");
-    }
+    if (vkCreateCommandPool(device, &info, nullptr, &commandPool) != VK_SUCCESS) throw std::runtime_error("Failed to create command pool!");
 }
 
 void Application::createCommandBuffers() {
@@ -547,9 +482,7 @@ void Application::createCommandBuffers() {
     allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
 
-    if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate command buffers!");
-    }
+    if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) throw std::runtime_error("Failed to allocate command buffers!");
 }
 
 void Application::createSyncObjects() {
@@ -580,9 +513,7 @@ void Application::createDescriptorPool() {
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes    = &poolSize;
     poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create descriptor pool");
-    }
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) throw std::runtime_error("Failed to create descriptor pool");
 }
 
 void Application::createDescriptorSets() {
@@ -595,9 +526,7 @@ void Application::createDescriptorSets() {
     allocInfo.pSetLayouts        = layouts.data();
 
     descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-    if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate descriptor sets!");
-    }
+    if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS) throw std::runtime_error("Failed to allocate descriptor sets!");
 
     // Bind each descriptor set to its uniform buffer
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -623,9 +552,7 @@ void Application::pickPhysicalDevice() {
     uint32_t deviceCount = 0;
     vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
 
-    if (deviceCount == 0) {
-        throw std::runtime_error("Failed to find GPUs with Vulkan support!");
-    }
+    if (deviceCount == 0) throw std::runtime_error("Failed to find GPUs with Vulkan support!");
 
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
@@ -638,9 +565,7 @@ void Application::pickPhysicalDevice() {
         }
     }
 
-    if (physicalDevice == VK_NULL_HANDLE) {
-        throw std::runtime_error("Failed to find a suitable GPU!");
-    }
+    if (physicalDevice == VK_NULL_HANDLE) throw std::runtime_error("Failed to find a suitable GPU!");
 }
 
 void Application::createLogicalDevice() {
@@ -671,16 +596,9 @@ void Application::createLogicalDevice() {
     vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, availableExtensions.data());
 
     bool portabilitySubsetAvailable = false;
-    for (const auto& extension : availableExtensions) {
-        if (strcmp(extension.extensionName, "VK_KHR_portability_subset") == 0) {
-            portabilitySubsetAvailable = true;
-            break;
-        }
-    }
+    for (const auto& extension : availableExtensions) if (strcmp(extension.extensionName, "VK_KHR_portability_subset") == 0) { portabilitySubsetAvailable = true; break; }
 
-    if (portabilitySubsetAvailable) {
-        deviceExtensions.push_back("VK_KHR_portability_subset");
-    }
+    if (portabilitySubsetAvailable) deviceExtensions.push_back("VK_KHR_portability_subset");
 
     VkDeviceCreateInfo createInfo{};
     createInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -690,9 +608,7 @@ void Application::createLogicalDevice() {
     createInfo.enabledExtensionCount   = static_cast<uint32_t>(deviceExtensions.size());
     createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
-    if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create logical device!");
-    }
+    if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) throw std::runtime_error("Failed to create logical device!");
 
     vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
     vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
@@ -721,21 +637,12 @@ Vulkan::SwapChainSupportDetails Application::querySwapChainSupport(VkPhysicalDev
 }
 
 VkSurfaceFormatKHR Application::chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
-    for (const auto& availableFormat : availableFormats) {
-        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
-            availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-            return availableFormat;
-        }
-    }
+    for (const auto& availableFormat : availableFormats) if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) return availableFormat;
     return availableFormats[0];
 }
 
 VkPresentModeKHR Application::chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
-    for (const auto& availablePresentMode : availablePresentModes) {
-        if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-            return availablePresentMode;
-        }
-    }
+    for (const auto& availablePresentMode : availablePresentModes) if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) return availablePresentMode;
     return VK_PRESENT_MODE_FIFO_KHR;
 }
 
@@ -765,9 +672,7 @@ void Application::createSwapChain() {
     VkExtent2D         extent        = chooseSwapExtent(swapChainSupport.capabilities);
 
     uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-    if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
-        imageCount = swapChainSupport.capabilities.maxImageCount;
-    }
+    if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) imageCount = swapChainSupport.capabilities.maxImageCount;
 
     VkSwapchainCreateInfoKHR createInfo{};
     createInfo.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -796,9 +701,7 @@ void Application::createSwapChain() {
     createInfo.clipped        = VK_TRUE;
     createInfo.oldSwapchain   = VK_NULL_HANDLE;
 
-    if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapchain) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create swap chain!");
-    }
+    if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapchain) != VK_SUCCESS) throw std::runtime_error("Failed to create swap chain!");
 
     vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
     swapchainImages.resize(imageCount);
@@ -823,9 +726,7 @@ void Application::createFramebuffers() {
         framebufferInfo.height          = swapchainExtent.height;
         framebufferInfo.layers          = 1;
 
-        if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapchainFramebuffers[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create framebuffer!");
-        }
+        if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapchainFramebuffers[i]) != VK_SUCCESS) throw std::runtime_error("Failed to create framebuffer!");
     }
 }
 
@@ -844,9 +745,7 @@ void Application::createImageViews() {
     view.subresourceRange.layerCount     = 1;
     for (size_t i = 0; i < swapchainImages.size(); i++) {
         view.image = swapchainImages[i];
-        if (vkCreateImageView(device, &view, nullptr, &swapchainImageViews[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create image views!");
-        }
+        if (vkCreateImageView(device, &view, nullptr, &swapchainImageViews[i]) != VK_SUCCESS) throw std::runtime_error("Failed to create image views!");
     }
 }
 
@@ -863,9 +762,7 @@ void Application::createDescriptorSetLayout() {
     layoutInfo.bindingCount = 1;
     layoutInfo.pBindings    = &uboLayoutBinding;
 
-    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create descriptor set layout!");
-    }
+    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) throw std::runtime_error("Failed to create descriptor set layout!");
 }
 
 void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, uint32_t frameIndex) {
@@ -892,33 +789,40 @@ void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, 
                             nullptr);
     vkCmdDraw(cmd, 36, 1, 0, 0);
 
-    // 2. Draw road (model-based)
+    // ========================================================================
+    // 2. Draw Road (glTF Model with PBR Materials)
+    // ========================================================================
+    // The road model (~50km long) is rendered with asphalt textures using
+    // the same PBR pipeline as the car. This ensures consistent material
+    // rendering and lighting across the scene.
+    // Rendering Order: Skybox → Road (opaque) → Car (opaque) → Car (transparent)
     if (roadModelPtr->getIndexCount() > 0) {
         const auto&  roadMaterials       = roadModelPtr->getMaterials();
         VkBuffer     roadVertexBuffers[] = {roadModelPtr->getVertexBuffer()};
         VkDeviceSize roadOffsets[]       = {0};
 
         if (!roadMaterials.empty()) {
-            // Road has textures - use car pipeline with MaterialManager
+            // Road has PBR materials - use car pipeline (car.vert/frag shaders)
+            // Materials include: base color (asphalt_01_diff_2k.jpg), roughness map
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipeline);
 
-            // Push road model matrix
+            // Push road model matrix (identity at ground level Y=0)
             glm::mat4 roadMatrix = roadModelPtr->getModelMatrix();
             vkCmdPushConstants(cmd, carPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &roadMatrix);
 
-            // Bind vertex and index buffers
+            // Bind road geometry buffers
             vkCmdBindVertexBuffers(cmd, 0, 1, roadVertexBuffers, roadOffsets);
             vkCmdBindIndexBuffer(cmd, roadModelPtr->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-            // Render each material
+            // Render each material primitive (typically 1 material for roads)
             for (size_t i = 0; i < roadMaterials.size(); i++) {
                 const auto& material = roadMaterials[i];
 
-                // Get descriptor set from MaterialManager
+                // Get GPU material resources (textures + descriptor set)
                 uint32_t        gpuId         = roadMaterialIds[i];
                 VkDescriptorSet matDescriptor = materialManager->getDescriptorSet(gpuId, frameIndex);
 
-                // Bind descriptor sets
+                // Bind descriptor sets: [0] = Camera UBO, [1] = Material textures
                 std::vector<VkDescriptorSet> sets = {descriptorSets[frameIndex], matDescriptor};
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipelineLayout, 0,
                                         static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
@@ -927,7 +831,7 @@ void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, 
                 vkCmdDrawIndexed(cmd, material.indexCount, 1, material.indexStart, 0, 0);
             }
         } else {
-            // Road has no materials - use simple world pipeline
+            // Fallback: Road has no materials - use simple world pipeline (untextured)
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipeline);
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipelineLayout, 0, 1,
                                     &descriptorSets[frameIndex], 0, nullptr);
@@ -961,6 +865,11 @@ void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, 
             VkPipeline pipeline = batch.isTransparent ? carTransparentPipeline : carPipeline;
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
+            static bool loggedTransparency = false;
+            if (!loggedTransparency && batch.isTransparent) {
+                loggedTransparency = true;
+            }
+
             // Bind model's vertex and index buffers ONCE per batch
             VkBuffer     vertexBuffers[] = {batch.model->getVertexBuffer()};
             VkDeviceSize offsets[]       = {0};
@@ -987,6 +896,7 @@ void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, 
                     continue;
                 }
 
+                // Bind descriptor sets: [0] = Camera UBO, [1] = Material textures
                 std::vector<VkDescriptorSet> sets = {descriptorSets[frameIndex], matDescriptor};
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipelineLayout, 0,
                                         static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
@@ -996,42 +906,14 @@ void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, 
                 drawnNodes++;
             }
         }
-
-        // Print debug info once
-        if (!debugPrinted) {
-            std::cout << "\n=== RENDER DEBUG ===" << std::endl;
-            std::cout << "Batches: " << batches.size() << std::endl;
-            std::cout << "Total nodes processed: " << totalNodes << std::endl;
-            std::cout << "Skipped (no descriptor): " << skippedNoDescriptor << std::endl;
-            std::cout << "Actually drawn: " << drawnNodes << std::endl;
-
-            // Print first batch's first node transform for debugging
-            if (!batches.empty() && !batches[0].nodes.empty()) {
-                SceneNode* firstNode = batches[0].nodes[0];
-                if (firstNode) {
-                    glm::mat4 wt = firstNode->worldTransform;
-                    std::cout << "First node worldTransform diagonal: (" << wt[0][0] << ", " << wt[1][1] << ", "
-                              << wt[2][2] << ", " << wt[3][3] << ")" << std::endl;
-                    std::cout << "First node worldTransform position: (" << wt[3][0] << ", " << wt[3][1] << ", "
-                              << wt[3][2] << ")" << std::endl;
-                }
-            }
-
-            std::cout << "===================\n" << std::endl;
-            debugPrinted = true;
-        }
     }
 
     // 4. Draw debug markers (if enabled)
-    if (debugVisualizationEnabled && debugVertexCount > 0) {
-        renderDebugMarkers(cmd, frameIndex);
-    }
 
     vkCmdEndRenderPass(cmd);
 
-    if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to record command buffer");
-    }
+    if (vkEndCommandBuffer(cmd) != VK_SUCCESS) throw std::runtime_error("Failed to record command buffer");
+
 }
 // ==== Buffer Helper Methods (TODO) ====
 
@@ -1149,9 +1031,19 @@ void Application::mainLoop() {
             }
         }
 
-        // Update car physics and camera
+        // Update car physics
         updateCarPhysics(deltaTime);
-        updateCameraForCockpit();
+
+        // Update camera based on car position and rotation
+        // IMPORTANT: Car model has a 90° X-axis rotation, we need to account for this
+        glm::vec3 modelRot = carAdapter ? carAdapter->getModelRotation() : glm::vec3(90.0f, 0.0f, 0.0f);
+        glm::quat fixRotation =
+            glm::quat(glm::vec3(glm::radians(modelRot.x), glm::radians(modelRot.y), glm::radians(modelRot.z)));
+        glm::quat yRotation = glm::angleAxis(glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::quat carQuat   = yRotation * fixRotation;  // Combine steering + model orientation
+
+        camera.setCameraTarget(carPosition, carQuat);
+        camera.updateCameraMode(deltaTime);
 
         // Update weather system
         weatherSystem.update(deltaTime);
@@ -1169,9 +1061,17 @@ void Application::mainLoop() {
         // Toggle debug visualization with V key
         if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS) {
             debugVisualizationEnabled = !debugVisualizationEnabled;
-            std::cout << "Debug visualization: " << (debugVisualizationEnabled ? "ON" : "OFF") << std::endl;
             // Small delay to prevent multiple toggles
             while (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS) {
+                glfwPollEvents();
+            }
+        }
+
+        // Cycle camera mode with C key
+        if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
+            camera.cycleMode();
+            // Small delay to prevent multiple toggles
+            while (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
                 glfwPollEvents();
             }
         }
@@ -1212,14 +1112,33 @@ void Application::mainLoop() {
 
         // Print updated offset when changed
         if (offsetChanged) {
-            std::cout << "Cockpit offset: (" << cockpitOffset.x << ", " << cockpitOffset.y << ", " << cockpitOffset.z
-                      << ")" << std::endl;
+            camera.setCockpitOffset(cockpitOffset);
+            Log logger;
+            logger.log("info",
+                "Cockpit Offset: (" + std::to_string(cockpitOffset.x) + ", " +
+                std::to_string(cockpitOffset.y) + ", " +
+                std::to_string(cockpitOffset.z) + ")");
+        }
+
+        // Log camera and car position on L key press
+        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) {
+            glm::vec3 camPos = camera.getPosition();
+            Log logger;
+            logger.log("position",
+                "Camera: (" + std::to_string(camPos.x) + ", " +
+                std::to_string(camPos.y) + ", " +
+                std::to_string(camPos.z) + ") | Car: (" +
+                std::to_string(carPosition.x) + ", " +
+                std::to_string(carPosition.y) + ", " +
+                std::to_string(carPosition.z) + ") | Angle: " +
+                std::to_string(carRotation));
+            // Small delay to prevent multiple logs
+            while (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) {
+                glfwPollEvents();
+            }
         }
 
         // Update debug markers every frame (car position changes)
-        if (debugVisualizationEnabled) {
-            updateDebugMarkers();
-        }
 
         glfwPollEvents();
         drawFrame();
@@ -1492,60 +1411,54 @@ void Application::createWorldPipeline() {
 }
 
 void Application::loadCarModel() {
-    // Load model geometry (keep as pointer for scene system)
-    carModelPtr = new Model();
-    carModelPtr->loadFromFile("assets/models/bmw/bmw.gltf", device, physicalDevice, commandPool, graphicsQueue);
+    // NEW: Use ModelAdapter for data-driven loading
+    carAdapter = new ModelAdapter();
+    if (!carAdapter->load("assets/models/bmw/bmw.gltf", device, physicalDevice, commandPool, graphicsQueue)) {
+        throw std::runtime_error("Failed to load car model via adapter");
+    }
+    carModelPtr = carAdapter->getModel();
 
-    // Get UNSCALED model dimensions
-    glm::vec3 dimensions = carModelPtr->getDimensions();
+    // Get hierarchy-aware dimensions for accurate scaling
+    glm::vec3 hMin, hMax;
+    carModelPtr->getHierarchyBounds(hMin, hMax);
+    glm::vec3 hDimensions = hMax - hMin;
 
-    std::cout << "\n=== CAR SCALE CALCULATION ===" << std::endl;
-    std::cout << "Original model dimensions: " << dimensions.x << " x " << dimensions.y << " x " << dimensions.z
               << std::endl;
 
-    // BMW M3 target dimensions in meters (1 unit = 1 meter)
-    const float targetLength = 4.7f;  // meters
+    // Use target length from adapter
+    float targetLength = carAdapter->getTargetLength();
+    if (targetLength <= 0.0f) {
+        targetLength = 4.7f;  // Fallback
+    }
 
     // Calculate scale factor based on length (Z dimension)
-    carScaleFactor = targetLength / dimensions.z;
+    carScaleFactor = targetLength / hDimensions.z;
 
-    // Print bounding box info for debugging
-    glm::vec3 minB = carModelPtr->getMinBounds();
-    glm::vec3 maxB = carModelPtr->getMaxBounds();
+    // Cache the bottom offset (lowest point in model space * scale)
+    carBottomOffset = hMin.y * carScaleFactor;
 
-    // Calculate a better starting cockpit position
-    // Driver position is typically:
-    // - X: slightly left of center (but we'll start centered)
-    // - Y: about 60% forward from rear (in model space before rotation)
-    // - Z: about 80% of height (eye level)
 
-    glm::vec3 dims = carModelPtr->getDimensions();
-    glm::vec3 min  = carModelPtr->getMinBounds();
-
-    // In model space (before 90° rotation):
-    // Y axis is what becomes "forward" in world space after rotation
-    // Z axis is what becomes "up" in world space after rotation
-
-    float suggestedX = 0.0f;                    // Center
-    float suggestedY = min.y + dims.y * 0.4f;   // 40% from front (60% from back)
-    float suggestedZ = min.z + dims.z * 0.75f;  // 75% of height for eye level
+    // Use cockpit offset from adapter
+    cockpitOffset = carAdapter->getCockpitOffset();
+    if (cockpitOffset == glm::vec3(0.0f)) {
+        // Fallback to a better starting cockpit position if not in JSON
+        float suggestedX = 0.0f;                            // Center
+        float suggestedY = hMin.y + hDimensions.y * 0.4f;   // 40% from front
+        float suggestedZ = hMin.z + hDimensions.z * 0.75f;  // 75% of height
+        cockpitOffset    = glm::vec3(suggestedX, suggestedY, suggestedZ);
+    }
 
     // Load GPU resources for car materials
     const auto& carMaterials = carModelPtr->getMaterials();
-    std::cout << "\n=== LOADING CAR MATERIALS ===" << std::endl;
     for (size_t i = 0; i < carMaterials.size(); i++) {
         uint32_t gpuId    = materialManager->createMaterial(carMaterials[i]);
         carMaterialIds[i] = gpuId;
     }
-    std::cout << "Loaded " << carMaterials.size() << " car materials" << std::endl;
 
     // NEW: Build scene from hierarchy
-    std::cout << "\n=== BUILDING SCENE GRAPH ===" << std::endl;
     Scene* drivingScene = sceneManager.createScene("driving");
 
     std::vector<NodeHandle> carRootNodes = SceneBuilder::buildFromModel(drivingScene, carModelPtr, carMaterialIds);
-    std::cout << "Created " << drivingScene->getNodeCount() << " scene nodes" << std::endl;
-    std::cout << "Number of glTF root nodes: " << carRootNodes.size() << std::endl;
 
     // NEW: Create entity for player car with a WRAPPER ROOT
     // This ensures all glTF roots get the same transform when we move/scale the car
@@ -1565,76 +1478,67 @@ void Application::loadCarModel() {
         playerCar->addNode(carRootNodes[i], "gltf_root_" + std::to_string(i));
     }
 
-    std::cout << "Entity created with wrapper root and " << carRootNodes.size() << " glTF roots reparented"
-              << std::endl;
+    // NEW: Find and tag specific parts for animation using ADAPTER ROLES
 
-    // NEW: Find and tag specific parts for animation
-    auto meshNames = carModelPtr->getMeshNames();
-    std::cout << "\n=== SEARCHING FOR CAR PARTS ===" << std::endl;
-    std::cout << "Available meshes: " << meshNames.size() << std::endl;
+    auto tagRole = [&](const std::string& role) {
+        std::string nodeName = carAdapter->getNodeNameForRole(role);
+        if (!nodeName.empty()) {
+            if (auto node = drivingScene->findNode(nodeName); node.isValid()) {
+                playerCar->addNode(node, role);
+                return true;
+            }
+        }
+        return false;
+    };
 
-    // Find wheels
-    if (auto wheel = drivingScene->findNode("3DWheel Front L_04"); wheel.isValid()) {
-        playerCar->addNode(wheel, CarEntity::ROLE_WHEEL_FL);
-        std::cout << "Found wheel_FL" << std::endl;
-    }
-    if (auto wheel = drivingScene->findNode("3DWheel Front R_04"); wheel.isValid()) {
-        playerCar->addNode(wheel, CarEntity::ROLE_WHEEL_FR);
-        std::cout << "Found wheel_FR" << std::endl;
-    }
-    if (auto wheel = drivingScene->findNode("3DWheel Rear L_04"); wheel.isValid()) {
-        playerCar->addNode(wheel, CarEntity::ROLE_WHEEL_RL);
-        std::cout << "Found wheel_RL" << std::endl;
-    }
-    if (auto wheel = drivingScene->findNode("3DWheel Rear R_04"); wheel.isValid()) {
-        playerCar->addNode(wheel, CarEntity::ROLE_WHEEL_RR);
-        std::cout << "Found wheel_RR" << std::endl;
-    }
+    tagRole(CarEntity::ROLE_WHEEL_FL);
+    tagRole(CarEntity::ROLE_WHEEL_FR);
+    tagRole(CarEntity::ROLE_WHEEL_RL);
+    tagRole(CarEntity::ROLE_WHEEL_RR);
 
-    // Find steering wheel
-    if (auto steeringWheel = drivingScene->findNode("steering_wheel_back"); steeringWheel.isValid()) {
-        playerCar->addNode(steeringWheel, CarEntity::ROLE_STEERING_WHEEL);
-        std::cout << "Found steering_wheel" << std::endl;
+    if (tagRole(CarEntity::ROLE_STEERING_WHEEL)) {
         carParts.hasSteeringWheel = true;
     }
 
-    // Find wipers
-    if (auto wiper = drivingScene->findNode("left_wiper"); wiper.isValid()) {
-        playerCar->addNode(wiper, CarEntity::ROLE_WIPER_LEFT);
-        std::cout << "Found left_wiper" << std::endl;
+    if (tagRole(CarEntity::ROLE_WIPER_LEFT)) {
         carParts.hasWipers = true;
     }
-    if (auto wiper = drivingScene->findNode("right_wiper"); wiper.isValid()) {
-        playerCar->addNode(wiper, CarEntity::ROLE_WIPER_RIGHT);
-        std::cout << "Found right_wiper" << std::endl;
-    }
+    tagRole(CarEntity::ROLE_WIPER_RIGHT);
 
-    // Find extra parts (lights, hood, doors)
-    // Note: These names are based on our grep search
-    if (auto hood = drivingScene->findNode("m4car_hood1"); hood.isValid()) {
-        playerCar->addNode(hood, CarEntity::ROLE_HOOD);
-    }
-    if (auto doorL = drivingScene->findNode("m4:left_door_Mesh_2_car_body"); doorL.isValid()) {
-        playerCar->addNode(doorL, CarEntity::ROLE_DOOR_L);
-    }
-    // right door node name might be slightly different or nested, using what we saw in GLTF for now
-    if (auto doorR = drivingScene->findNode("m4:right_door_Mesh_3_car_interior"); doorR.isValid()) {
-        playerCar->addNode(doorR, CarEntity::ROLE_DOOR_R);
-    }
+    // Tag other roles
+    tagRole(CarEntity::ROLE_HOOD);
+    tagRole(CarEntity::ROLE_DOOR_L);
+    tagRole(CarEntity::ROLE_DOOR_R);
+    tagRole(CarEntity::ROLE_HEADLIGHTS);
+    tagRole(CarEntity::ROLE_TAILLIGHTS);
 
-    // Attempt to finding emissive parts
-    if (auto headlights = drivingScene->findNode("m4car_emissive1"); headlights.isValid()) {
-        playerCar->addNode(headlights, CarEntity::ROLE_HEADLIGHTS);
+    // Apply physics configuration from adapter if available
+    const auto& phys = carAdapter->getPhysicsConfig();
+    if (phys.wheelBase > 0.0f) {
+        auto& carConfig           = playerCar->getConfig();
+        carConfig.wheelBase       = phys.wheelBase;
+        carConfig.trackWidth      = phys.trackWidth;
+        carConfig.wheelRadius     = phys.wheelRadius;
+        carConfig.maxSteerAngle   = phys.maxSteerAngle;
+        carConfig.maxAcceleration = phys.maxAcceleration;
+        carConfig.maxBraking      = phys.maxBraking;
     }
 
     sceneManager.setActiveScene("driving");
-    std::cout << "Scene graph ready!" << std::endl;
-    std::cout << "================================\n" << std::endl;
 }
 
 void Application::loadRoadModel() {
-    roadModelPtr = new Model();
-    roadModelPtr->loadFromFile("assets/models/road.glb", device, physicalDevice, commandPool, graphicsQueue);
+
+    roadAdapter = new ModelAdapter();
+    if (!roadAdapter->load("assets/models/road.glb", device, physicalDevice, commandPool, graphicsQueue)) {
+        throw std::runtime_error("Failed to load road model via adapter");
+    }
+    roadModelPtr = roadAdapter->getModel();
+
+    // Log road model statistics
+
+    glm::vec3 minBounds = roadModelPtr->getMinBounds();
+    glm::vec3 maxBounds = roadModelPtr->getMaxBounds();
 
     // Position road at ground level (Y=0)
     glm::mat4 roadTransform = glm::mat4(1.0f);
@@ -1646,12 +1550,10 @@ void Application::loadRoadModel() {
 
     // Load GPU resources for road materials
     const auto& roadMaterials = roadModelPtr->getMaterials();
-    std::cout << "\n=== LOADING ROAD MATERIALS ===" << std::endl;
     for (size_t i = 0; i < roadMaterials.size(); i++) {
         uint32_t gpuId     = materialManager->createMaterial(roadMaterials[i]);
         roadMaterialIds[i] = gpuId;
     }
-    std::cout << "Loaded " << roadMaterials.size() << " road materials" << std::endl;
 
     // Create RoadEntity
     // Note: We don't store a pointer in Application class yet, but it's managed by SceneManager
@@ -1661,13 +1563,11 @@ void Application::loadRoadModel() {
         // We could attach the road model nodes here if we had them as SceneNodes
         // For now, the road is drawn via legacy loop in drawFrame, but we have the Entity for logic
     }
-
-    std::cout << "================================\n" << std::endl;
 }
 
-void Application::createCarPipeline() {
-    auto vertShaderCode = readFile("car.vert.spv");
-    auto fragShaderCode = readFile("car.frag.spv");
+VkPipeline Application::createBasePipeline(const PipelineConfig& config) {
+    auto vertShaderCode = readFile(config.vertShader);
+    auto fragShaderCode = readFile(config.fragShader);
 
     VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
     VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
@@ -1686,7 +1586,6 @@ void Application::createCarPipeline() {
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
-    // Vertex input
     auto bindingDescription    = Vertex::getBindingDescription();
     auto attributeDescriptions = Vertex::getAttributeDescriptions();
 
@@ -1699,7 +1598,7 @@ void Application::createCarPipeline() {
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.topology               = config.topology;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
     VkViewport viewport{};
@@ -1726,8 +1625,8 @@ void Application::createCarPipeline() {
     rasterizer.depthClampEnable        = VK_FALSE;
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth               = 1.0f;
-    rasterizer.cullMode                = VK_CULL_MODE_NONE;  // Disable culling to fix rendering issues
+    rasterizer.lineWidth               = config.lineWidth;
+    rasterizer.cullMode                = config.cullMode;
     rasterizer.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable         = VK_FALSE;
 
@@ -1739,7 +1638,7 @@ void Application::createCarPipeline() {
     VkPipelineDepthStencilStateCreateInfo depthStencil{};
     depthStencil.sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depthStencil.depthTestEnable       = VK_TRUE;
-    depthStencil.depthWriteEnable      = VK_TRUE;
+    depthStencil.depthWriteEnable      = config.enableDepthWrite ? VK_TRUE : VK_FALSE;
     depthStencil.depthCompareOp        = VK_COMPARE_OP_LESS;
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable     = VK_FALSE;
@@ -1747,14 +1646,54 @@ void Application::createCarPipeline() {
     VkPipelineColorBlendAttachmentState colorBlendAttachment{};
     colorBlendAttachment.colorWriteMask =
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable = VK_FALSE;
+
+    if (config.enableBlending) {
+        colorBlendAttachment.blendEnable         = VK_TRUE;
+        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
+        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        colorBlendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
+    } else {
+        colorBlendAttachment.blendEnable = VK_FALSE;
+    }
 
     VkPipelineColorBlendStateCreateInfo colorBlending{};
     colorBlending.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     colorBlending.logicOpEnable   = VK_FALSE;
+    colorBlending.logicOp         = VK_LOGIC_OP_COPY;
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments    = &colorBlendAttachment;
 
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 2;
+    pipelineInfo.pStages             = shaderStages;
+    pipelineInfo.pVertexInputState   = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &multisampling;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.pColorBlendState    = &colorBlending;
+    pipelineInfo.layout              = config.layout;
+    pipelineInfo.renderPass          = renderPass;
+    pipelineInfo.subpass             = 0;
+    pipelineInfo.basePipelineHandle  = VK_NULL_HANDLE;
+
+    VkPipeline pipeline;
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create graphics pipeline");
+    }
+
+    vkDestroyShaderModule(device, fragShaderModule, nullptr);
+    vkDestroyShaderModule(device, vertShaderModule, nullptr);
+
+    return pipeline;
+}
+
+void Application::createCarPipeline() {
     // Create descriptor set layout for texture
     VkDescriptorSetLayoutBinding samplerLayoutBinding{};
     samplerLayoutBinding.binding         = 0;
@@ -1791,169 +1730,49 @@ void Application::createCarPipeline() {
         throw std::runtime_error("Failed to create car pipeline layout");
     }
 
-    VkGraphicsPipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount          = 2;
-    pipelineInfo.pStages             = shaderStages;
-    pipelineInfo.pVertexInputState   = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
-    pipelineInfo.pViewportState      = &viewportState;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState   = &multisampling;
-    pipelineInfo.pDepthStencilState  = &depthStencil;
-    pipelineInfo.pColorBlendState    = &colorBlending;
-    pipelineInfo.layout              = carPipelineLayout;
-    pipelineInfo.renderPass          = renderPass;
-    pipelineInfo.subpass             = 0;
+    PipelineConfig config;
+    config.vertShader = "car.vert.spv";
+    config.fragShader = "car.frag.spv";
+    config.layout     = carPipelineLayout;
+    config.cullMode   = VK_CULL_MODE_NONE;
 
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &carPipeline) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create car graphics pipeline");
-    }
-
-    vkDestroyShaderModule(device, fragShaderModule, nullptr);
-    vkDestroyShaderModule(device, vertShaderModule, nullptr);
+    carPipeline = createBasePipeline(config);
 }
 
 void Application::createCarTransparentPipeline() {
-    auto vertShaderCode = readFile("car.vert.spv");
-    auto fragShaderCode = readFile("car.frag.spv");
+    PipelineConfig config;
+    config.vertShader       = "car.vert.spv";
+    config.fragShader       = "car.frag.spv";
+    config.layout           = carPipelineLayout;  // Reuse existing layout
+    config.cullMode         = VK_CULL_MODE_NONE;
+    config.enableBlending   = true;
+    config.enableDepthWrite = false;
 
-    VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
-    VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+    carTransparentPipeline = createBasePipeline(config);
+}
 
-    VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
-    vertShaderStageInfo.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    vertShaderStageInfo.stage  = VK_SHADER_STAGE_VERTEX_BIT;
-    vertShaderStageInfo.module = vertShaderModule;
-    vertShaderStageInfo.pName  = "main";
-
-    VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
-    fragShaderStageInfo.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    fragShaderStageInfo.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
-    fragShaderStageInfo.module = fragShaderModule;
-    fragShaderStageInfo.pName  = "main";
-
-    VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
-
-    auto bindingDescription    = Vertex::getBindingDescription();
-    auto attributeDescriptions = Vertex::getAttributeDescriptions();
-
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount   = 1;
-    vertexInputInfo.pVertexBindingDescriptions      = &bindingDescription;
-    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-    vertexInputInfo.pVertexAttributeDescriptions    = attributeDescriptions.data();
-
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly.sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    inputAssembly.primitiveRestartEnable = VK_FALSE;
-
-    VkViewport viewport{};
-    viewport.x        = 0.0f;
-    viewport.y        = 0.0f;
-    viewport.width    = static_cast<float>(swapchainExtent.width);
-    viewport.height   = static_cast<float>(swapchainExtent.height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = swapchainExtent;
-
-    VkPipelineViewportStateCreateInfo viewportState{};
-    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewportState.viewportCount = 1;
-    viewportState.pViewports    = &viewport;
-    viewportState.scissorCount  = 1;
-    viewportState.pScissors     = &scissor;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.depthClampEnable        = VK_FALSE;
-    rasterizer.rasterizerDiscardEnable = VK_FALSE;
-    rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth               = 1.0f;
-    rasterizer.cullMode                = VK_CULL_MODE_NONE;
-    rasterizer.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizer.depthBiasEnable         = VK_FALSE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.sampleShadingEnable  = VK_FALSE;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    // CRITICAL: Configure depth for transparent objects
-    VkPipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil.sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencil.depthTestEnable       = VK_TRUE;
-    depthStencil.depthWriteEnable      = VK_FALSE;  // DON'T write to depth buffer
-    depthStencil.depthCompareOp        = VK_COMPARE_OP_LESS;
-    depthStencil.depthBoundsTestEnable = VK_FALSE;
-    depthStencil.stencilTestEnable     = VK_FALSE;
-
-    // CRITICAL: Enable alpha blending
-    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment.colorWriteMask =
-        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable         = VK_TRUE;
-    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    colorBlendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
-    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    colorBlendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
-
-    VkPipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlending.logicOpEnable   = VK_FALSE;
-    colorBlending.attachmentCount = 1;
-    colorBlending.pAttachments    = &colorBlendAttachment;
-
-    VkGraphicsPipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount          = 2;
-    pipelineInfo.pStages             = shaderStages;
-    pipelineInfo.pVertexInputState   = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
-    pipelineInfo.pViewportState      = &viewportState;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState   = &multisampling;
-    pipelineInfo.pDepthStencilState  = &depthStencil;
-    pipelineInfo.pColorBlendState    = &colorBlending;
-    pipelineInfo.layout              = carPipelineLayout;  // Reuse existing layout
-    pipelineInfo.renderPass          = renderPass;
-    pipelineInfo.subpass             = 0;
-
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &carTransparentPipeline) !=
-        VK_SUCCESS) {
-        throw std::runtime_error("Failed to create transparent car graphics pipeline");
-    }
-
-    vkDestroyShaderModule(device, fragShaderModule, nullptr);
-    vkDestroyShaderModule(device, vertShaderModule, nullptr);
-
-    std::cout << "Created transparent car pipeline" << std::endl;
 }
 
 void Application::createCarDescriptorSets() {
     const auto& materials = carModelPtr->getMaterials();
     if (materials.empty()) {
-        std::cout << "No car materials to create descriptor sets for" << std::endl;
         return;
     }
 
-    // Create descriptor pool for car textures (need sets for each material * frames)
+    // Create descriptor pool for ALL materials (road + car) * frames
+    // We need to account for materials already created (road = 1) + car materials
+    uint32_t totalMaterials = 1 + static_cast<uint32_t>(materials.size());  // road + car
+    totalMaterials += 50;  // Add buffer for safety
+
     VkDescriptorPoolSize poolSize{};
     poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = static_cast<uint32_t>(materials.size() * MAX_FRAMES_IN_FLIGHT);
+    poolSize.descriptorCount = totalMaterials * MAX_FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes    = &poolSize;
-    poolInfo.maxSets       = static_cast<uint32_t>(materials.size() * MAX_FRAMES_IN_FLIGHT);
+    poolInfo.maxSets       = totalMaterials * MAX_FRAMES_IN_FLIGHT;
 
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &carDescriptorPool) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create car descriptor pool");
@@ -1966,7 +1785,6 @@ void Application::createCarDescriptorSets() {
     // Create descriptor sets for materials that were loaded before descriptor support was initialized
     materialManager->createDescriptorSetsForExistingMaterials();
 
-    std::cout << "Car descriptor pool and MaterialManager initialized" << std::endl;
 }
 
 void Application::updateCarPhysics(float deltaTime) {
@@ -2004,30 +1822,23 @@ void Application::updateCarPhysics(float deltaTime) {
     // Update car position (move along X axis, which is forward)
     carPosition.z += carVelocity * deltaTime;
 
-    // Update car model matrix
-    glm::mat4 modelMatrix = glm::mat4(1.0f);
-    modelMatrix           = glm::translate(modelMatrix, carPosition);
-    modelMatrix           = glm::rotate(modelMatrix, glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
-    // Apply 90° X-axis rotation to fix model orientation (was facing up)
-    modelMatrix = glm::rotate(modelMatrix, glm::radians(270.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-    // Apply calculated scale for realistic size
-    modelMatrix = glm::scale(modelMatrix, glm::vec3(carScaleFactor, carScaleFactor, carScaleFactor));
-    carModelPtr->setModelMatrix(modelMatrix);
+    // Update car position (move along X axis, which is forward)
+    carPosition.z += carVelocity * deltaTime;
 
     // NEW: Update scene entity transform
     if (playerCar) {
         // Apply vertical offset relative to the rotation correction
-        // The car model has an internal offset that places it at Y=10.72 when at local (0,0,0)
-        // We subtract this to bring it to the ground.
+        // The car model has an internal offset that we dynamically calculated
         glm::vec3 visualPosition = carPosition;
-        visualPosition.y -= 10.72f;
+        visualPosition.y -= carBottomOffset;
 
         playerCar->setPosition(visualPosition);
 
         // Combine rotations: 270° X-axis (model orientation fix) + Y-axis (steering)
-        glm::quat xRotation        = glm::angleAxis(glm::radians(270.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        // Combine rotations: Model orientation fix + Y-axis (steering)
+        glm::quat fixRotation      = glm::quat(glm::vec3(0.0f, 0.0f, 0.0f));
         glm::quat yRotation        = glm::angleAxis(glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
-        glm::quat combinedRotation = yRotation * xRotation;  // Apply X rotation first, then Y
+        glm::quat combinedRotation = yRotation * fixRotation;  // Apply fix rotation first, then steering
 
         playerCar->setRotation(combinedRotation);
         playerCar->setScale(glm::vec3(carScaleFactor));
@@ -2109,29 +1920,11 @@ void Application::updateCameraForCockpit() {
     camera.setYaw(90.0f);
     camera.setPitch(-15.0f);  // Look down slightly at the car
 
-    static bool printedOnce = false;
-    if (!printedOnce) {
-        std::cout << "\n=== CAMERA & CAR DEBUG ===" << std::endl;
-        std::cout << "Car world position: (" << carPosition.x << ", " << carPosition.y << ", " << carPosition.z << ")"
-                  << std::endl;
-        std::cout << "Car rotation (Y-axis): " << carRotation << " degrees" << std::endl;
-        std::cout << "Cockpit offset (before rotation): (" << cockpitOffset.x << ", " << cockpitOffset.y << ", "
-                  << cockpitOffset.z << ")" << std::endl;
-        std::cout << "Rotated offset: (" << rotatedOffset.x << ", " << rotatedOffset.y << ", " << rotatedOffset.z << ")"
-                  << std::endl;
-        std::cout << "Final camera position: (" << chasePosition.x << ", " << chasePosition.y << ", " << chasePosition.z
-                  << ")" << std::endl;
-        std::cout << "Camera is " << (chasePosition.y >= 0 ? "ABOVE" : "BELOW") << " ground (Y=" << chasePosition.y
-                  << ")" << std::endl;
-        std::cout << "===========================\n" << std::endl;
-        printedOnce = true;
-    }
 }
 
 void Application::createWindshieldPipeline() {
     // TODO: Implement windshield pipeline creation
     // This will be a simple quad rendering pipeline with the windshield shader
-    std::cout << "Windshield pipeline creation placeholder" << std::endl;
 }
 
 void Application::renderWindshield(VkCommandBuffer cmd, uint32_t frameIndex) {
@@ -2139,290 +1932,6 @@ void Application::renderWindshield(VkCommandBuffer cmd, uint32_t frameIndex) {
     // This will render a full-screen quad with the windshield effect
     (void)cmd;
     (void)frameIndex;
-}
-
-// ===== Debug Visualization Methods =====
-
-void Application::createDebugPipeline() {
-    // Load debug shaders
-    auto vertShaderCode = readFile("debug.vert.spv");
-    auto fragShaderCode = readFile("debug.frag.spv");
-
-    VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
-    VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
-
-    VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
-    vertShaderStageInfo.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    vertShaderStageInfo.stage  = VK_SHADER_STAGE_VERTEX_BIT;
-    vertShaderStageInfo.module = vertShaderModule;
-    vertShaderStageInfo.pName  = "main";
-
-    VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
-    fragShaderStageInfo.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    fragShaderStageInfo.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
-    fragShaderStageInfo.module = fragShaderModule;
-    fragShaderStageInfo.pName  = "main";
-
-    VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
-
-    // Vertex input: position (vec3) + color (vec3)
-    VkVertexInputBindingDescription bindingDescription{};
-    bindingDescription.binding   = 0;
-    bindingDescription.stride    = sizeof(float) * 6;  // 3 floats for position + 3 for color
-    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-    // Position
-    attributeDescriptions[0].binding  = 0;
-    attributeDescriptions[0].location = 0;
-    attributeDescriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[0].offset   = 0;
-    // Color
-    attributeDescriptions[1].binding  = 0;
-    attributeDescriptions[1].location = 1;
-    attributeDescriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[1].offset   = sizeof(float) * 3;
-
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount   = 1;
-    vertexInputInfo.pVertexBindingDescriptions      = &bindingDescription;
-    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-    vertexInputInfo.pVertexAttributeDescriptions    = attributeDescriptions.data();
-
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly.sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;  // Draw lines
-    inputAssembly.primitiveRestartEnable = VK_FALSE;
-
-    VkViewport viewport{};
-    viewport.x        = 0.0f;
-    viewport.y        = 0.0f;
-    viewport.width    = static_cast<float>(swapchainExtent.width);
-    viewport.height   = static_cast<float>(swapchainExtent.height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = swapchainExtent;
-
-    VkPipelineViewportStateCreateInfo viewportState{};
-    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewportState.viewportCount = 1;
-    viewportState.pViewports    = &viewport;
-    viewportState.scissorCount  = 1;
-    viewportState.pScissors     = &scissor;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.depthClampEnable        = VK_FALSE;
-    rasterizer.rasterizerDiscardEnable = VK_FALSE;
-    rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth               = 2.0f;  // Thick lines for visibility
-    rasterizer.cullMode                = VK_CULL_MODE_NONE;
-    rasterizer.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizer.depthBiasEnable         = VK_FALSE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.sampleShadingEnable  = VK_FALSE;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    VkPipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil.sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencil.depthTestEnable       = VK_TRUE;
-    depthStencil.depthWriteEnable      = VK_FALSE;                     // Don't write to depth buffer
-    depthStencil.depthCompareOp        = VK_COMPARE_OP_LESS_OR_EQUAL;  // Draw even if equal
-    depthStencil.depthBoundsTestEnable = VK_FALSE;
-    depthStencil.stencilTestEnable     = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment.colorWriteMask =
-        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable         = VK_TRUE;
-    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    colorBlendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
-    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    colorBlendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
-
-    VkPipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlending.logicOpEnable   = VK_FALSE;
-    colorBlending.attachmentCount = 1;
-    colorBlending.pAttachments    = &colorBlendAttachment;
-
-    // Use the same descriptor set layout as other pipelines (camera UBO)
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts    = &descriptorSetLayout;
-
-    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &debugPipelineLayout) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create debug pipeline layout!");
-    }
-
-    VkGraphicsPipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount          = 2;
-    pipelineInfo.pStages             = shaderStages;
-    pipelineInfo.pVertexInputState   = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
-    pipelineInfo.pViewportState      = &viewportState;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState   = &multisampling;
-    pipelineInfo.pDepthStencilState  = &depthStencil;
-    pipelineInfo.pColorBlendState    = &colorBlending;
-    pipelineInfo.layout              = debugPipelineLayout;
-    pipelineInfo.renderPass          = renderPass;
-    pipelineInfo.subpass             = 0;
-
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &debugPipeline) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create debug pipeline!");
-    }
-
-    vkDestroyShaderModule(device, fragShaderModule, nullptr);
-    vkDestroyShaderModule(device, vertShaderModule, nullptr);
-
-    std::cout << "Debug visualization pipeline created" << std::endl;
-}
-
-void Application::createDebugMarkers() {
-    // Initial buffer creation with placeholder data
-    // Will be updated in updateDebugMarkers()
-    const size_t maxVertices = 1000;                             // Plenty for our debug markers
-    VkDeviceSize bufferSize  = sizeof(float) * 6 * maxVertices;  // 6 floats per vertex (pos + color)
-
-    createBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, debugVertexBuffer,
-                 debugVertexBufferMemory);
-
-    std::cout << "Debug marker buffer created" << std::endl;
-}
-
-void Application::updateDebugMarkers() {
-    // Build debug visualization data
-    struct DebugVertex {
-        float x, y, z;  // Position
-        float r, g, b;  // Color
-    };
-
-    std::vector<DebugVertex> vertices;
-
-    // Get car dimensions in world space
-    glm::vec3 carDimensions = carModelPtr->getDimensions() * carScaleFactor;
-
-    // Calculate rotation matrix (same as car model)
-    glm::mat4 rotationMatrix = glm::mat4(1.0f);
-    rotationMatrix           = glm::rotate(rotationMatrix, glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
-    rotationMatrix           = glm::rotate(rotationMatrix, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-
-    // 1. Car origin (0,0,0 in model space) - WHITE cross
-    auto addLine = [&](glm::vec3 start, glm::vec3 end, glm::vec3 color) {
-        vertices.push_back({start.x, start.y, start.z, color.r, color.g, color.b});
-        vertices.push_back({end.x, end.y, end.z, color.r, color.g, color.b});
-    };
-
-    // Car origin axes (small, 0.5m each direction)
-    glm::vec3 origin = carPosition;
-    glm::vec3 xAxis  = glm::vec3(rotationMatrix * glm::vec4(0.5f, 0.0f, 0.0f, 0.0f));
-    glm::vec3 yAxis  = glm::vec3(rotationMatrix * glm::vec4(0.0f, 0.5f, 0.0f, 0.0f));
-    glm::vec3 zAxis  = glm::vec3(rotationMatrix * glm::vec4(0.0f, 0.0f, 0.5f, 0.0f));
-
-    addLine(origin, origin + xAxis, glm::vec3(1.0f, 0.0f, 0.0f));  // X = RED
-    addLine(origin, origin + yAxis, glm::vec3(0.0f, 1.0f, 0.0f));  // Y = GREEN
-    addLine(origin, origin + zAxis, glm::vec3(0.0f, 0.0f, 1.0f));  // Z = BLUE
-
-    // 2. Bounding box corners - YELLOW
-    glm::vec3 bbMin = carModelPtr->getMinBounds() * carScaleFactor;
-    glm::vec3 bbMax = carModelPtr->getMaxBounds() * carScaleFactor;
-
-    // Transform bounding box corners to world space
-    auto transformPoint = [&](glm::vec3 localPoint) -> glm::vec3 {
-        glm::vec3 rotated = glm::vec3(rotationMatrix * glm::vec4(localPoint, 0.0f));
-        return carPosition + rotated;
-    };
-
-    glm::vec3 corners[8] = {
-        transformPoint(glm::vec3(bbMin.x, bbMin.y, bbMin.z)), transformPoint(glm::vec3(bbMax.x, bbMin.y, bbMin.z)),
-        transformPoint(glm::vec3(bbMax.x, bbMax.y, bbMin.z)), transformPoint(glm::vec3(bbMin.x, bbMax.y, bbMin.z)),
-        transformPoint(glm::vec3(bbMin.x, bbMin.y, bbMax.z)), transformPoint(glm::vec3(bbMax.x, bbMin.y, bbMax.z)),
-        transformPoint(glm::vec3(bbMax.x, bbMax.y, bbMax.z)), transformPoint(glm::vec3(bbMin.x, bbMax.y, bbMax.z))};
-
-    glm::vec3 yellow(1.0f, 1.0f, 0.0f);
-    // Bottom face
-    addLine(corners[0], corners[1], yellow);
-    addLine(corners[1], corners[2], yellow);
-    addLine(corners[2], corners[3], yellow);
-    addLine(corners[3], corners[0], yellow);
-    // Top face
-    addLine(corners[4], corners[5], yellow);
-    addLine(corners[5], corners[6], yellow);
-    addLine(corners[6], corners[7], yellow);
-    addLine(corners[7], corners[4], yellow);
-    // Vertical edges
-    addLine(corners[0], corners[4], yellow);
-    addLine(corners[1], corners[5], yellow);
-    addLine(corners[2], corners[6], yellow);
-    addLine(corners[3], corners[7], yellow);
-
-    // 3. Cockpit offset position - CYAN
-    glm::vec3 rotatedOffset = glm::vec3(rotationMatrix * glm::vec4(cockpitOffset, 0.0f));
-    glm::vec3 cockpitPos    = carPosition + rotatedOffset + glm::vec3(0.0f, 0.4f, 0.0f);  // Same as camera calc
-
-    // Draw a cross at cockpit position
-    glm::vec3 cyan(0.0f, 1.0f, 1.0f);
-    addLine(cockpitPos + glm::vec3(-0.2f, 0.0f, 0.0f), cockpitPos + glm::vec3(0.2f, 0.0f, 0.0f), cyan);
-    addLine(cockpitPos + glm::vec3(0.0f, -0.2f, 0.0f), cockpitPos + glm::vec3(0.0f, 0.2f, 0.0f), cyan);
-    addLine(cockpitPos + glm::vec3(0.0f, 0.0f, -0.2f), cockpitPos + glm::vec3(0.0f, 0.0f, 0.2f), cyan);
-
-    // 4. Line from car origin to cockpit - MAGENTA
-    glm::vec3 magenta(1.0f, 0.0f, 1.0f);
-    addLine(origin, cockpitPos, magenta);
-
-    // 5. Car world position marker at ground level - BRIGHT GREEN (shows where car is on ground)
-    glm::vec3 carGroundPos(carPosition.x, 0.0f, carPosition.z);  // Project to ground
-    glm::vec3 brightGreen(0.0f, 1.0f, 0.0f);
-    // Draw a bright cross at the car's ground position
-    addLine(carGroundPos + glm::vec3(-0.5f, 0.0f, 0.0f), carGroundPos + glm::vec3(0.5f, 0.0f, 0.0f), brightGreen);
-    addLine(carGroundPos + glm::vec3(0.0f, 0.0f, -0.5f), carGroundPos + glm::vec3(0.0f, 0.0f, 0.5f), brightGreen);
-    // Vertical line from ground to car origin
-    addLine(carGroundPos, carPosition, brightGreen);
-
-    // 6. Ground reference grid at car position (helps see elevation) - DARK GREY
-    glm::vec3 darkGrey(0.4f, 0.4f, 0.4f);
-    for (int i = -2; i <= 2; i++) {
-        glm::vec3 start(carPosition.x + i * 1.0f, 0.0f, carPosition.z - 2.0f);
-        glm::vec3 end(carPosition.x + i * 1.0f, 0.0f, carPosition.z + 2.0f);
-        addLine(start, end, darkGrey);
-
-        start = glm::vec3(carPosition.x - 2.0f, 0.0f, carPosition.z + i * 1.0f);
-        end   = glm::vec3(carPosition.x + 2.0f, 0.0f, carPosition.z + i * 1.0f);
-        addLine(start, end, darkGrey);
-    }
-
-    // Update vertex count
-    debugVertexCount = static_cast<uint32_t>(vertices.size());
-
-    // Copy to GPU
-    void* data;
-    vkMapMemory(device, debugVertexBufferMemory, 0, sizeof(DebugVertex) * vertices.size(), 0, &data);
-    memcpy(data, vertices.data(), sizeof(DebugVertex) * vertices.size());
-    vkUnmapMemory(device, debugVertexBufferMemory);
-}
-
-void Application::renderDebugMarkers(VkCommandBuffer cmd, uint32_t frameIndex) {
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debugPipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debugPipelineLayout, 0, 1,
-                            &descriptorSets[frameIndex], 0, nullptr);
-
-    VkBuffer     vertexBuffers[] = {debugVertexBuffer};
-    VkDeviceSize offsets[]       = {0};
-    vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-
-    vkCmdDraw(cmd, debugVertexCount, 1, 0, 0);
 }
 
 }  // namespace DownPour
