@@ -1,6 +1,7 @@
 #pragma once
 
 #define GLFW_INCLUDE_VULKAN
+#include "core/VulkanContext.h"
 #include "renderer/Camera.h"
 #include "renderer/Material.h"
 #include "renderer/ModelAdapter.h"
@@ -103,20 +104,18 @@ private:
     Simulation::WeatherSystem     weatherSystem;
     Simulation::WindshieldSurface windshield;
 
-    // GLFW and Vulkan handles
-    GLFWwindow*                  window         = nullptr;
-    VkInstance                   instance       = VK_NULL_HANDLE;
-    VkDevice                     device         = VK_NULL_HANDLE;
-    VkSurfaceKHR                 surface        = VK_NULL_HANDLE;
-    VkPhysicalDevice             physicalDevice = VK_NULL_HANDLE;
+    // Vulkan context (manages instance, device, surface, queues)
+    VulkanContext vulkanContext;
+
+    // GLFW window
+    GLFWwindow* window = nullptr;
+
+    // Vulkan handles still managed by Application
     VkCommandPool                commandPool    = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
     VkPipelineLayout             pipelineLayout      = VK_NULL_HANDLE;
     VkPipeline                   graphicsPipeline    = VK_NULL_HANDLE;
     VkDescriptorSetLayout        descriptorSetLayout = VK_NULL_HANDLE;
-    // Queue handles
-    VkQueue graphicsQueue = VK_NULL_HANDLE;
-    VkQueue presentQueue  = VK_NULL_HANDLE;
 
     // Swap chain
     VkSwapchainKHR             swapchain = VK_NULL_HANDLE;
@@ -169,10 +168,6 @@ private:
     // Initialization methods
     void           initWindow();
     void           initVulkan();
-    void           createInstance();
-    void           createSurface();
-    void           pickPhysicalDevice();
-    void           createLogicalDevice();
     void           createSwapChain();
     void           createRenderPass();
     void           createGraphicsPipeline();
@@ -280,7 +275,7 @@ private:
     template <typename T, typename D>
     void safeDestroy(T& handle, D destroyFunc) {
         if (handle != VK_NULL_HANDLE) {
-            destroyFunc(device, handle, nullptr);
+            destroyFunc(vulkanContext.getDevice(), handle, nullptr);
             handle = VK_NULL_HANDLE;
         }
     }

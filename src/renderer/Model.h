@@ -3,6 +3,7 @@
 #include "../core/Types.h"
 #include "Material.h"
 #include "Mesh.h"
+#include "ModelGeometry.h"
 #include "Vertex.h"
 
 #include <string>
@@ -54,12 +55,6 @@ class Model {
 public:
     Model()  = default;
     ~Model() = default;
-    enum class CameraMode { ORBIT, FOLLOW, COCKPIT };
-    CameraMode cameraMode    = CameraMode::COCKPIT;
-    float      orbitYaw      = 0.0f;
-    float      orbitPitch    = 0.0f;
-    float      orbitDistance = 10.0f;
-    bool       cKeyPressed   = false;
 
     /**
      * @brief Load a GLTF/GLB model from file
@@ -130,31 +125,16 @@ public:
     const std::vector<glTFScene>& getScenes() const;
     bool                          hasHierarchy() const;
 
-    void updateCamera(float deltaTime);
-    // setters
-    void setCameraMode(CameraMode mode);
-    void setOrbitYaw(float yaw);
-    void setOrbitPitch(float pitch);
-    void setOrbitDistance(float distance);
-    void setCKeyPressed(bool cPressed);
-    // getters
-    CameraMode getCameraMode() const;
-    float      getOrbitYaw() const;
-    float      getOrbitPitch() const;
-    float      getOrbitDistance() const;
-    bool       getCKeyPressed() const;
-
 private:
+    // Allow GLTFLoader to populate private data
+    friend class GLTFLoader;
+
     // Geometry data
     std::vector<Vertex>   vertices;
     std::vector<uint32_t> indices;
 
     // Vulkan geometry resources
-    VkBuffer       vertexBuffer       = VK_NULL_HANDLE;
-    VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
-    VkBuffer       indexBuffer        = VK_NULL_HANDLE;
-    VkDeviceMemory indexBufferMemory  = VK_NULL_HANDLE;
-    uint32_t       indexCount         = 0;
+    ModelGeometry geometry;
 
     // Material definitions (NEW: pure data, no GPU resources)
     std::vector<Material> materials;
@@ -173,28 +153,6 @@ private:
     std::vector<glTFNode>  nodes;
     std::vector<glTFScene> scenes;
     int                    defaultSceneIndex = 0;
-
-    // Helper methods for geometry
-    void createVertexBuffer(VkDevice device, VkPhysicalDevice physicalDevice, VkCommandPool commandPool,
-                            VkQueue graphicsQueue);
-
-    void createIndexBuffer(VkDevice device, VkPhysicalDevice physicalDevice, VkCommandPool commandPool,
-                           VkQueue graphicsQueue);
-
-    void createBuffer(VkDevice device, VkPhysicalDevice physicalDevice, VkDeviceSize size, VkBufferUsageFlags usage,
-                      VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
-
-    void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue, VkBuffer srcBuffer,
-                    VkBuffer dstBuffer, VkDeviceSize size);
-
-    uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
-    std::string resolveTexturePath(const std::string& modelPath, const std::string& textureUri);
-
-    /**
-     * @brief Helper to process glTF textures (handles external paths and embedded data)
-     */
-    void processGLTFTexture(const std::string& filepath, const void* modelPtr, int textureIndex,
-                            std::string& outPath, EmbeddedTexture& outEmbedded, bool& outHasFlag);
 };
 
 }  // namespace DownPour
