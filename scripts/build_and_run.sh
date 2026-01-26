@@ -38,10 +38,7 @@ fi
 
 # Build the project
 echo -e "${YELLOW}Building project...${NC}"
-cmake --build .
-
-# Check if build was successful
-if [ $? -eq 0 ]; then
+if cmake --build .; then
     echo -e "${GREEN}Build successful!${NC}"
     echo -e "${BLUE}==================================${NC}"
     echo -e "${YELLOW}Running DownPour...${NC}"

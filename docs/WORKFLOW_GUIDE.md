@@ -199,7 +199,7 @@ build/
 ├── DownPour              # Main executable
 ├── CMakeCache.txt        # CMake configuration
 ├── CMakeFiles/           # CMake build files
-├── compile_commands.json # For IDE/tools
+├── compile_commands.json # For IDE/tools (if CMAKE_EXPORT_COMPILE_COMMANDS is enabled)
 └── ...                   # Additional build artifacts
 ```
 
