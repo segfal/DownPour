@@ -89,8 +89,9 @@ cd ..
 ### Root Level Scripts
 
 **`./run.sh`**
+- Convenience wrapper that forwards to `scripts/build_and_run.sh`
 - Full build and run workflow
-- Creates build directory
+- Creates build directory if needed
 - Configures CMake if needed
 - Builds project
 - Runs application
@@ -99,14 +100,19 @@ cd ..
 ### Scripts Directory
 
 **`scripts/build_and_run.sh`**
-- Same as root `run.sh` but from scripts directory
-- Used by `make run`
+- Builds and runs the application
+- Used by `make run` and root `run.sh`
+- Creates build directory if needed
+- Runs CMake configuration if needed
+- Builds the project
+- Runs the application
 
 **`scripts/run.sh`**
-- Run only (no build)
-- Expects application to be already built
+- Execution only (no build step)
+- Expects `build/DownPour` executable to already exist
 - Used by `make run-only`
-- Lightweight execution script
+- Useful for quick iteration when you know the build is up-to-date
+- Minimal overhead - just executes the binary
 
 **`scripts/run_clean.sh`**
 - Full clean build
