@@ -74,6 +74,7 @@ DownPour/
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture with Mermaid diagrams (state machines, object relationships)
 - **[MATH.md](MATH.md)** - Mathematical reference with all formulas and equations used in the codebase
 - **[CODING_STANDARDS.md](CODING_STANDARDS.md)** - Code style guidelines and best practices
+- **[docs/WORKFLOW_GUIDE.md](docs/WORKFLOW_GUIDE.md)** - Complete guide to building, running, and development workflows
 - **[docs/COMMIT_SQUASHING_GUIDE.md](docs/COMMIT_SQUASHING_GUIDE.md)** - Guide for cleaning up commit history
 
 ## Code Organization
@@ -212,6 +213,8 @@ cmake --build .
 cd ..
 ./build/DownPour
 ```
+
+**For more detailed workflow information, troubleshooting, and advanced options, see [docs/WORKFLOW_GUIDE.md](docs/WORKFLOW_GUIDE.md).**
 
 ## Platform Support
 
