@@ -156,7 +156,7 @@ The codebase has been refactored (2026-01-25) to follow strict separation of con
 - **ESC**: Toggle cursor capture
 - **R**: Toggle weather (Sunny ↔ Rainy)
 
-## Building the Project
+## Getting Started
 
 ### Prerequisites
 - C++17 compatible compiler
@@ -164,16 +164,40 @@ The codebase has been refactored (2026-01-25) to follow strict separation of con
 - Vulkan SDK
 - Git (for submodules)
 
-### Build Steps
+### Quick Start (Recommended)
+
+The fastest way to build and run DownPour:
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/segfal/DownPour.git
 cd DownPour
 
-# Initialize and update git submodules
+# Initialize git submodules
 git submodule update --init --recursive
 
+# Build and run (single command)
+./run.sh
+```
+
+The `run.sh` script automatically:
+- Creates the build directory if needed
+- Configures CMake
+- Builds the project
+- Runs the application
+
+### Alternative Build Methods
+
+**Using Make:**
+```bash
+make run        # Build and run
+make clean      # Clean build and run
+make run-log    # Build, run, and save output to log file
+make build      # Build only (don't run)
+```
+
+**Manual CMake Build:**
+```bash
 # Create build directory
 mkdir build
 cd build
@@ -184,14 +208,9 @@ cmake ..
 # Build the project
 cmake --build .
 
-# Run the application
-./DownPour
-```
-
-### Quick Build Script
-
-```bash
-./run.sh  # Builds and runs the application
+# Run the application (from project root)
+cd ..
+./build/DownPour
 ```
 
 ## Platform Support
