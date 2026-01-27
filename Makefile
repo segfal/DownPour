@@ -1,7 +1,7 @@
 # DownPour Makefile
 # Build and run targets for main application and development tools
 
-.PHONY: run clean run-log format build \
+.PHONY: run run-only clean run-log format build \
         tools tools-monitor tools-editor tools-converter \
         tools-clean install-tools \
         run-monitor run-editor run-converter \
@@ -11,6 +11,10 @@
 
 # Default target: build and run
 run:
+	@bash scripts/build_and_run.sh
+
+# Run only (no build - expects application to be already built)
+run-only:
 	@bash scripts/run.sh
 
 # Clean build and run
@@ -129,9 +133,10 @@ help:
 	@echo ""
 	@echo "Main Application:"
 	@echo "  make run        - Build and run DownPour"
+	@echo "  make run-only   - Run DownPour (skip build)"
 	@echo "  make build      - Build DownPour only"
 	@echo "  make clean      - Clean build and rebuild"
-	@echo "  make run-log    - Run with logging"
+	@echo "  make run-log    - Build, run with logging"
 	@echo "  make format     - Format C++ source code"
 	@echo ""
 	@echo "Development Tools:"
