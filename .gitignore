@@ -10,3 +10,6 @@ Output.md
 .cache
 .canvas
 *.o
+src/tools/SceneEditor/Cargo.lock
+context/*
+

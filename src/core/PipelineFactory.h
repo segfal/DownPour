@@ -30,7 +30,7 @@ struct PipelineConfig {
  */
 class PipelineFactory {
 public:
-    PipelineFactory() = default;
+    PipelineFactory()  = default;
     ~PipelineFactory() = default;
 
     /**
@@ -52,7 +52,7 @@ public:
      * @param descriptorLayouts Descriptor set layouts
      * @return Created pipeline layout handle
      */
-    static VkPipelineLayout createPipelineLayout(VkDevice device,
+    static VkPipelineLayout createPipelineLayout(VkDevice                                  device,
                                                  const std::vector<VkDescriptorSetLayout>& descriptorLayouts);
 
 private:

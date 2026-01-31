@@ -39,8 +39,9 @@ public:
     const str&   getActiveSceneName() const { return activeSceneName; }
 
     // Entity management (entities live in scenes)
-    template <typename T = Entity>
-    T* createEntity(const str& name, const str& sceneName) {
+    // PHASE 3: Support variadic arguments for entity constructors
+    template <typename T = Entity, typename... Args>
+    T* createEntity(const str& name, const str& sceneName, Args&&... args) {
         // Check if entity already exists (and is of correct type ideally, but we'll assume valid usage)
         if (entities.find(name) != entities.end())
             return dynamic_cast<T*>(entities[name].get());
@@ -50,8 +51,8 @@ public:
         if (!scene)
             return nullptr;
 
-        // Create entity
-        auto entity         = std::make_unique<T>(name, scene);
+        // Create entity with forwarded arguments
+        auto entity         = std::make_unique<T>(name, scene, std::forward<Args>(args)...);
         T*   entityPtr      = entity.get();
         entities[name]      = std::move(entity);
         entityToScene[name] = sceneName;

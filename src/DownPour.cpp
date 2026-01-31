@@ -77,19 +77,14 @@ void Application::initVulkan() {
 
     float aspect = static_cast<float>(swapChainManager.getExtent().width) /
                    static_cast<float>(swapChainManager.getExtent().height);
-    // Initialize camera (will be updated by updateCamera based on camera mode)
-    camera = Camera({0.0f, 0.0f, 0.0f}, aspect);
-    // Set FOV (wider for cockpit, normal for external)
-    camera.setFOV(75.0f);
-    // Set far plane to 10km so we can see the entire 6.5km road
-    camera.setFarPlane(10000.0f);
-
-    // Set initial camera mode to Cockpit
-    camera.setMode(CameraMode::Cockpit);
-    camera.setCockpitOffset(cockpitOffset);
+    
+    // CameraEntity will be created and initialized in loadCarModel()
+    // Set aspect ratio here for later use
+    // (Note: actual camera initialization moved to loadCarModel where it attaches to car)
 
     lastFrameTime = glfwGetTime();
 }
+
 
 void Application::cleanup() {
     // Clean up windshield resources
@@ -185,8 +180,16 @@ void Application::createUniformBuffers() {
 
 void Application::updateUniformBuffer(uint32_t currentImage) {
     CameraUBO ubo{};
-    ubo.view = camera.getViewMatrix();
-    ubo.proj = camera.getProjectionMatrix();
+    if (cameraEntity) {
+        ubo.view = cameraEntity->getViewMatrix();
+        ubo.proj = cameraEntity->getProjectionMatrix();
+    } else {
+        // Fallback if cameraEntity not initialized yet
+        float aspect = static_cast<float>(swapChainManager.getExtent().width) /
+                       static_cast<float>(swapChainManager.getExtent().height);
+        ubo.view = glm::mat4(1.0f);
+        ubo.proj = glm::perspective(glm::radians(75.0f), aspect, 0.1f, 10000.0f);
+    }
     ubo.proj[1][1] *= -1;  // GLM for OpenGL, flip Y for Vulkan
     ubo.viewProj = ubo.proj * ubo.view;
 
@@ -554,11 +557,10 @@ void Application::mainLoop() {
         // Update car physics
         updateCarPhysics(deltaTime);
 
-        // Update camera based on car position and rotation
-        if (camera.getMode() == CameraMode::Cockpit) {
-            updateCameraForCockpit();
+        // Update camera based on current mode
+        if (cameraEntity) {
+            cameraEntity->updateCameraMode(deltaTime);
         }
-        camera.updateCameraMode(deltaTime);
 
         // Update weather system
         weatherSystem.update(deltaTime);
@@ -584,7 +586,9 @@ void Application::mainLoop() {
 
         // Cycle camera mode with C key
         if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
-            camera.cycleMode();
+            if (cameraEntity) {
+                cameraEntity->cycleMode();
+            }
             // Small delay to prevent multiple toggles
             while (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
                 glfwPollEvents();
@@ -627,7 +631,9 @@ void Application::mainLoop() {
 
         // Print updated offset when changed
         if (offsetChanged) {
-            camera.setCockpitOffset(cockpitOffset);
+            if (cameraEntity) {
+                cameraEntity->setLocalOffset(cockpitOffset);
+            }
             Log logger;
             logger.log("info", "Cockpit Offset: (" + std::to_string(cockpitOffset.x) + ", " +
                                    std::to_string(cockpitOffset.y) + ", " + std::to_string(cockpitOffset.z) + ")");
@@ -635,7 +641,7 @@ void Application::mainLoop() {
 
         // Log camera and car position on L key press
         if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) {
-            glm::vec3 camPos = camera.getPosition();
+            glm::vec3 camPos = cameraEntity ? cameraEntity->getWorldPosition() : glm::vec3(0.0f);
             Log       logger;
             logger.log("position", "Camera: (" + std::to_string(camPos.x) + ", " + std::to_string(camPos.y) + ", " +
                                        std::to_string(camPos.z) + ") | Car: (" + std::to_string(carPosition.x) + ", " +
@@ -675,7 +681,9 @@ void Application::mouseCallback(GLFWwindow* window, double xpos, double ypos) {
     app->lastX = xpos;
     app->lastY = ypos;
 
-    app->camera.processMouseMovement(xoffset, yoffset);
+    if (app->cameraEntity) {
+        app->cameraEntity->processMouseMovement(xoffset, yoffset);
+    }
 }
 
 void Application::createDepthResources() {
@@ -767,11 +775,11 @@ void Application::loadCarModel() {
 
     std::vector<NodeHandle> carRootNodes = SceneBuilder::buildFromModel(drivingScene, carModelPtr, carMaterialIds);
 
-    // NEW: Create entity for player car with a WRAPPER ROOT
-    // This ensures all glTF roots get the same transform when we move/scale the car
-    playerCar = sceneManager.createEntity<CarEntity>("player_car", "driving");
+    // PHASE 3: Create entity with ModelAdapter reference for automatic config flow
+    // Config automatically flows from carAdapter to CarEntity via smart getters!
+    playerCar = sceneManager.createEntity<CarEntity>("player_car", "driving", carAdapter);
 
-    // Apply config from CarEntity
+    // Set length (this property is not in JSON, so set manually)
     auto& carConfig  = playerCar->getConfig();
     carConfig.length = targetLength;
 
@@ -808,7 +816,7 @@ void Application::loadCarModel() {
     }
 
     if (tagRole(CarEntity::ROLE_STEERING_WHEEL_BACK)) {
-        carParts.hasSteeringWheelBack = true;  
+        carParts.hasSteeringWheelBack = true;
     }
 
     if (tagRole(CarEntity::ROLE_WIPER_LEFT)) {
@@ -823,21 +831,15 @@ void Application::loadCarModel() {
     tagRole(CarEntity::ROLE_HEADLIGHTS);
     tagRole(CarEntity::ROLE_TAILLIGHTS);
 
-    // Apply physics configuration from adapter if available
-    const auto& phys = carAdapter->getPhysicsConfig();
-    if (phys.wheelBase > 0.0f) {
-        auto& carConfig           = playerCar->getConfig();
-        carConfig.wheelBase       = phys.wheelBase;
-        carConfig.trackWidth      = phys.trackWidth;
-        carConfig.wheelRadius     = phys.wheelRadius;
-        carConfig.maxSteerAngle   = phys.maxSteerAngle;
-        carConfig.maxAcceleration = phys.maxAcceleration;
-        carConfig.maxBraking      = phys.maxBraking;
-
-        carConfig.mass              = phys.mass;
-        carConfig.dragCoefficient   = phys.dragCoefficient;
-        carConfig.rollingResistance = phys.rollingResistance;
-    }
+    // ========================================================================
+    // PHASE 3: Config automatically flows via smart getters - no manual transfer needed!
+    // ========================================================================
+    // The CarEntity smart getters (getWheelBase(), getMass(), etc.) automatically
+    // query the ModelAdapter config when called. Zero boilerplate, zero duplication!
+    Log logger;
+    logger.log("info", "CarEntity created with ModelAdapter config: wheelBase=" +
+                           std::to_string(playerCar->getWheelBase()) + "m, mass=" +
+                           std::to_string(playerCar->getMass()) + "kg");
 
     // Apply spawn configuration
     const auto& spawn = carAdapter->getSpawnConfig();
@@ -862,38 +864,28 @@ void Application::loadCarModel() {
         }
     }
 
-    // Create camera entity and attach to car
-    cameraEntity = sceneManager.createEntity<CameraEntity>("cockpit_camera", "driving");
+    // ========================================================================
+    // PHASE 3: Create camera entity with ModelAdapter reference
+    // ========================================================================
+    // Config automatically initialized in constructor from carAdapter!
+    cameraEntity = sceneManager.createEntity<CameraEntity>("cockpit_camera", "driving", carAdapter);
 
-    // Configure camera from JSON metadata
-    CameraEntity::CameraConfig camConfig;
-
-    // Use camera configuration from JSON if available
-    const auto& setupCamCfg = carAdapter->getCameraConfig();
-    if (setupCamCfg.hasData) {
-        const auto& cockpit   = setupCamCfg.cockpit;
-        camConfig.localOffset = cockpit.position;
-        if (cockpit.useQuaternion) {
-            camConfig.localRotation = cockpit.rotation;
-        } else {
-            camConfig.localRotation = glm::quat(glm::radians(cockpit.eulerRotation));
-        }
-        camConfig.fov       = cockpit.fov;
-        camConfig.nearPlane = cockpit.nearPlane;
-        camConfig.farPlane  = cockpit.farPlane;
-    } else {
-        // Fallback to defaults
-        camConfig.localOffset   = cockpitOffset;
-        camConfig.localRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-        camConfig.fov           = 75.0f;
-        camConfig.nearPlane     = 0.1f;
-        camConfig.farPlane      = 10000.0f;
-    }
-
-    cameraEntity->setConfig(camConfig);
+    // Log successful creation
+    logger.log("info", "CameraEntity created with ModelAdapter config: FOV=" +
+                           std::to_string(cameraEntity->getFOV()) + "°");
 
     // Attach camera to car
     cameraEntity->attachToParent(playerCar);
+
+    // Set aspect ratio and initial mode
+    float aspect = static_cast<float>(swapChainManager.getExtent().width) /
+                   static_cast<float>(swapChainManager.getExtent().height);
+    cameraEntity->setAspectRatio(aspect);
+    cameraEntity->setMode(CameraMode::Cockpit);
+
+    // Capture base rotations for animatable parts (steering wheel, wheels, etc.)
+    // This must be done after all nodes are added to preserve original mesh orientations
+    playerCar->captureBaseRotations();
 
     sceneManager.setActiveScene("driving");
 }
@@ -1125,12 +1117,9 @@ void Application::updateCarPhysics(float deltaTime) {
             }
         }
 
-        // NEW: Animate steering wheel in scene entity
+        // Animate steering wheel using CarEntity method (combines with base rotation)
         if (playerCar) {
-            // Steering wheel rotates around Z axis
-            glm::quat steeringRot = glm::angleAxis(glm::radians(steeringWheelRotation), glm::vec3(0.0f, 0.0f, 1.0f));
-            playerCar->animateRotation("steering_wheel_front", steeringRot);
-            playerCar->animateRotation("steering_wheel_back", steeringRot);
+            playerCar->setSteeringAngle(steeringWheelRotation);
         }
     }
 
@@ -1146,54 +1135,14 @@ void Application::updateCarPhysics(float deltaTime) {
 }
 
 void Application::updateCameraForCockpit() {
-    // Use CameraEntity to get world-space position and rotation
-    // The CameraEntity automatically follows the car through the scene graph
-    if (!cameraEntity || !playerCar) {
-        // Fallback to old system if camera entity not initialized
-        glm::quat yRotation = glm::angleAxis(glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
-
-        glm::vec3 finalOffset;
-        glm::quat finalCamRot;
-
-        const auto& camCfg = carAdapter->getCameraConfig();
-        if (camCfg.hasData) {
-            const auto& cockpit = camCfg.cockpit;
-            finalOffset         = yRotation * cockpit.position;
-            if (cockpit.useQuaternion) {
-                finalCamRot = yRotation * cockpit.rotation;
-            } else {
-                finalCamRot = yRotation * glm::quat(glm::radians(cockpit.eulerRotation));
-            }
-            camera.setCameraTarget(carPosition + finalOffset, finalCamRot);
-        } else {
-            glm::mat4 rotationMatrix = glm::mat4(1.0f);
-            rotationMatrix = glm::rotate(rotationMatrix, glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
-            rotationMatrix = glm::rotate(rotationMatrix, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-
-            glm::vec3 rotatedOffset = glm::vec3(rotationMatrix * glm::vec4(cockpitOffset, 0.0f));
-            camera.setPosition(carPosition + rotatedOffset);
-            camera.setYaw(0.0f);
-            camera.setPitch(0.0f);
-        }
-        return;
-    }
-
-    // Use CameraEntity to get world-space position and rotation
-    // This automatically accounts for car position, rotation, and the local offset
-    glm::vec3 worldPos = cameraEntity->getWorldPosition();
-    glm::quat worldRot = cameraEntity->getWorldRotation();
-
-    // DEBUG: Log camera entity world position
-    if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) {
-        Log logger;
-        logger.log("debug", "CameraEntity WorldPos: (" + std::to_string(worldPos.x) + ", " +
-                                std::to_string(worldPos.y) + ", " + std::to_string(worldPos.z) + ")");
-    }
-
-    // Ensure the Camera class's internal cockpitOffset doesn't double-offset
-    // since we already have the transformed world position.
-    camera.setCockpitOffset(glm::vec3(0.0f));
-    camera.setCameraTarget(worldPos, worldRot);
+    // DEPRECATED: This function is no longer needed!
+    // CameraEntity automatically follows the car through the scene graph.
+    // The scene graph handles position, rotation, and offset transforms automatically.
+    // No manual camera target setting required.
+    //
+    // Camera modes (Cockpit, Chase, ThirdPerson) are handled by:
+    //   cameraEntity->updateCameraMode(deltaTime)
+    // which is called in the main update loop.
 }
 
 void Application::createWindshieldPipeline() {

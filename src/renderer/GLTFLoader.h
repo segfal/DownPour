@@ -29,16 +29,11 @@ public:
 
 private:
     // Helper to resolve texture paths (external or embedded)
-    static std::string resolveTexturePath(const std::string& modelPath,
-                                         const std::string& textureUri);
+    static std::string resolveTexturePath(const std::string& modelPath, const std::string& textureUri);
 
     // Helper to process GLTF texture references
-    static void processGLTFTexture(const std::string& filepath,
-                                  const void* modelPtr,
-                                  int textureIndex,
-                                  std::string& outPath,
-                                  struct EmbeddedTexture& outEmbedded,
-                                  bool& outHasFlag);
+    static void processGLTFTexture(const std::string& filepath, const void* modelPtr, int textureIndex,
+                                   std::string& outPath, struct EmbeddedTexture& outEmbedded, bool& outHasFlag);
 };
 
-} // namespace DownPour
+}  // namespace DownPour

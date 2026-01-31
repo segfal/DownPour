@@ -22,7 +22,6 @@ add_executable(${PROJECT_NAME}
     src/core/PipelineFactory.cpp
     src/core/ResourceManager.cpp
     src/logger/Logger.cpp
-    src/renderer/Camera.cpp
     src/renderer/Vertex.cpp
     src/renderer/Model.cpp
     src/renderer/ModelGeometry.cpp

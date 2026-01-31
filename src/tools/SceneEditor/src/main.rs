@@ -1,5 +1,6 @@
 mod scene_data;
 mod ui;
+mod renderer;
 
 use eframe::{NativeOptions, egui::ViewportBuilder};
 use scene_data::SceneConfig;

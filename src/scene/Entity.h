@@ -57,7 +57,7 @@ public:
     NodeHandle getRootNode() const { return rootNode; }
     const str& getName() const { return name; }
     Scene*     getScene() const { return scene; }
-    
+
 private:
     str        name;
     Scene*     scene;

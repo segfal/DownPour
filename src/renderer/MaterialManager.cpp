@@ -173,7 +173,6 @@ void MaterialManager::createDescriptorSetsForExistingMaterials() {
         gpuResources.descriptorSets = matDescriptorSets;  // Store ALL frames
         createdCount++;
     }
-
 }
 
 VkDescriptorSet MaterialManager::getDescriptorSet(uint32_t materialId, uint32_t frameIndex) const {

@@ -7,9 +7,9 @@ typedef enum { RESOURCE_IDLE, RESOURCE_ACTIVE, RESOURCE_STRESSED } ResourceState
 
 // Enum for usage levels with color coding
 typedef enum {
-    USAGE_LOW,      // < 40% (Green)
-    USAGE_MODERATE, // 40-80% (Yellow)
-    USAGE_HIGH      // > 80% (Red)
+    USAGE_LOW,       // < 40% (Green)
+    USAGE_MODERATE,  // 40-80% (Yellow)
+    USAGE_HIGH       // > 80% (Red)
 } UsageLevel;
 
 // Enum for Vulkan backend type
@@ -33,10 +33,10 @@ typedef enum {
 
 // Struct for real system metrics
 typedef struct {
-    float cpu_percent;
-    float gpu_percent;
-    float cpu_power_watts;
-    float gpu_power_watts;
+    float    cpu_percent;
+    float    gpu_percent;
+    float    cpu_power_watts;
+    float    gpu_power_watts;
     uint32_t cpu_freq_mhz;
     uint32_t gpu_freq_mhz;
 } SystemMetrics;

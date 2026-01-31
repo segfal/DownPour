@@ -1,8 +1,8 @@
 #include "VulkanContext.h"
 
-#include <stdexcept>
-#include <set>
 #include <cstring>
+#include <set>
+#include <stdexcept>
 
 namespace DownPour {
 
@@ -179,4 +179,4 @@ Vulkan::QueueFamilyIndices VulkanContext::findQueueFamilies(VkPhysicalDevice dev
     return indices;
 }
 
-} // namespace DownPour
+}  // namespace DownPour

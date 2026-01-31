@@ -14,7 +14,7 @@ namespace DownPour {
  */
 class ResourceManager {
 public:
-    ResourceManager() = default;
+    ResourceManager()  = default;
     ~ResourceManager() = default;
 
     /**
@@ -29,8 +29,8 @@ public:
      * @param bufferMemory Output memory handle
      */
     static void createBuffer(VkDevice device, VkPhysicalDevice physicalDevice, VkDeviceSize size,
-                            VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer,
-                            VkDeviceMemory& bufferMemory);
+                             VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer,
+                             VkDeviceMemory& bufferMemory);
 
     /**
      * @brief Copy data between buffers using a command buffer
@@ -43,7 +43,7 @@ public:
      * @param size Number of bytes to copy
      */
     static void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue, VkBuffer srcBuffer,
-                          VkBuffer dstBuffer, VkDeviceSize size);
+                           VkBuffer dstBuffer, VkDeviceSize size);
 
     /**
      * @brief Create a Vulkan image with memory
@@ -60,8 +60,8 @@ public:
      * @param imageMemory Output memory handle
      */
     static void createImage(VkDevice device, VkPhysicalDevice physicalDevice, uint32_t width, uint32_t height,
-                           VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
-                           VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
+                            VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+                            VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
 
     /**
      * @brief Find suitable memory type from requirements
@@ -84,7 +84,7 @@ public:
      * @return Supported format
      */
     static VkFormat findSupportedFormat(VkPhysicalDevice physicalDevice, const std::vector<VkFormat>& candidates,
-                                       VkImageTiling tiling, VkFormatFeatureFlags features);
+                                        VkImageTiling tiling, VkFormatFeatureFlags features);
 
     /**
      * @brief Find suitable depth format

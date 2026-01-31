@@ -1,7 +1,7 @@
 # SceneEditor Makefile
 # Build Rust GUI tool for scene manipulation
 
-.PHONY: build run clean release test
+.PHONY: build run run-bmw clean release test
 
 # Default target
 all: build
@@ -22,6 +22,11 @@ release:
 run: build
 	@echo "Launching SceneEditor..."
 	cargo run
+
+# Run with BMW model config
+run-bmw: build
+	@echo "Launching SceneEditor with BMW model..."
+	cargo run -- ../../../assets/models/bmw/bmw.glb.json
 
 # Run release build
 run-release: release

@@ -1,5 +1,6 @@
 use crate::scene_data::{SceneConfig, SceneObject};
-use egui::{Context, SidePanel, CentralPanel, ScrollArea, DragValue, Ui};
+use crate::renderer::{SceneRenderer, CameraMode};
+use egui::{Context, SidePanel, CentralPanel, ScrollArea, DragValue, Ui, ColorImage, TextureOptions};
 
 pub struct EditorState {
     pub config: SceneConfig,
@@ -7,6 +8,16 @@ pub struct EditorState {
     pub config_path: String,
     pub unsaved_changes: bool,
     pub status_message: Option<String>,
+
+    // 3D rendering
+    renderer: Option<SceneRenderer>,
+    camera_mode: CameraMode,
+    model_path: Option<String>,
+
+    // Mouse state for camera controls
+    last_mouse_pos: Option<egui::Pos2>,
+    is_dragging_left: bool,
+    is_dragging_right: bool,
 }
 
 impl EditorState {
@@ -17,6 +28,12 @@ impl EditorState {
             config_path,
             unsaved_changes: false,
             status_message: None,
+            renderer: None,
+            camera_mode: CameraMode::Orbital,
+            model_path: None,
+            last_mouse_pos: None,
+            is_dragging_left: false,
+            is_dragging_right: false,
         }
     }
 
@@ -39,6 +56,10 @@ impl EditorState {
                     self.add_new_object();
                 }
 
+                if ui.button("📦 Load Model").clicked() {
+                    self.open_model_browser();
+                }
+
                 ui.separator();
 
                 if self.unsaved_changes {
@@ -47,6 +68,14 @@ impl EditorState {
 
                 if let Some(ref msg) = self.status_message {
                     ui.colored_label(egui::Color32::GREEN, msg);
+                }
+
+                if let Some(ref path) = self.model_path {
+                    ui.label(format!("Model: {}",
+                        std::path::Path::new(path)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("unknown")));
                 }
             });
         });
@@ -115,6 +144,69 @@ impl EditorState {
                         }
                     }
                 });
+            });
+
+        // Right panel: 3D Viewport
+        SidePanel::right("viewport_panel")
+            .default_width(600.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.heading("3D Viewport");
+                ui.separator();
+
+                // Camera mode toggle
+                ui.horizontal(|ui| {
+                    ui.label("Camera:");
+                    if ui.selectable_label(self.camera_mode == CameraMode::SceneCamera, "Scene").clicked() {
+                        self.camera_mode = CameraMode::SceneCamera;
+                        if let Some(ref mut renderer) = self.renderer {
+                            renderer.set_camera_mode(CameraMode::SceneCamera);
+                            renderer.update_from_config(&self.config);
+                        }
+                    }
+                    if ui.selectable_label(self.camera_mode == CameraMode::Orbital, "Orbital").clicked() {
+                        self.camera_mode = CameraMode::Orbital;
+                        if let Some(ref mut renderer) = self.renderer {
+                            renderer.set_camera_mode(CameraMode::Orbital);
+                        }
+                    }
+                });
+
+                ui.add_space(5.0);
+
+                // Render viewport or show placeholder
+                if let Some(ref mut renderer) = self.renderer {
+                    if renderer.has_model() {
+                        self.render_viewport(ui, ctx);
+                    } else {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(200.0);
+                            ui.heading("No Model Loaded");
+                            ui.label("Click 'Load Model' to open a GLTF/GLB file");
+                        });
+                    }
+                } else {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(200.0);
+                        ui.heading("Renderer Not Initialized");
+                        ui.label("Click 'Load Model' to start");
+                    });
+                }
+
+                // Camera controls help
+                if self.camera_mode == CameraMode::Orbital {
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.label("Controls:");
+                    ui.label("  • Left drag: Rotate");
+                    ui.label("  • Right drag: Pan");
+                    ui.label("  • Scroll: Zoom");
+                    if ui.button("Reset Camera").clicked() {
+                        if let Some(ref mut renderer) = self.renderer {
+                            renderer.reset_orbital_camera();
+                        }
+                    }
+                }
             });
 
         // Central panel: Transform editor
@@ -312,5 +404,112 @@ impl EditorState {
         self.config.objects.push(new_obj);
         self.selected_object = Some(self.config.objects.len() - 1);
         self.unsaved_changes = true;
+    }
+
+    fn open_model_browser(&mut self) {
+        // Open file dialog to select GLTF/GLB file
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("GLTF Models", &["gltf", "glb"])
+            .pick_file()
+        {
+            self.load_model(path.to_string_lossy().to_string());
+        }
+    }
+
+    fn load_model(&mut self, path: String) {
+        // Initialize renderer if not already done
+        if self.renderer.is_none() {
+            match SceneRenderer::new(800, 600) {
+                Ok(renderer) => {
+                    self.renderer = Some(renderer);
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("✗ Failed to create renderer: {}", e));
+                    return;
+                }
+            }
+        }
+
+        // Load model
+        if let Some(ref mut renderer) = self.renderer {
+            match renderer.load_model(&path) {
+                Ok(_) => {
+                    self.model_path = Some(path.clone());
+                    renderer.set_camera_mode(self.camera_mode);
+                    renderer.update_from_config(&self.config);
+                    self.status_message = Some(format!("✓ Loaded model: {}",
+                        std::path::Path::new(&path)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("unknown")));
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("✗ Failed to load model: {}", e));
+                }
+            }
+        }
+    }
+
+    fn render_viewport(&mut self, ui: &mut Ui, ctx: &Context) {
+        let available_size = ui.available_size();
+        let width = available_size.x as u32;
+        let height = (available_size.y - 100.0).max(400.0) as u32;
+
+        // Resize renderer if needed
+        if let Some(ref mut renderer) = self.renderer {
+            renderer.resize(width, height);
+
+            // Render scene
+            match renderer.render() {
+                Ok(pixels) => {
+                    // Convert pixels to egui texture
+                    let color_image = ColorImage::from_rgba_unmultiplied(
+                        [width as usize, height as usize],
+                        &pixels,
+                    );
+
+                    let texture = ctx.load_texture(
+                        "viewport",
+                        color_image,
+                        TextureOptions::default(),
+                    );
+
+                    // Display image and handle input
+                    let response = ui.add(
+                        egui::Image::new(&texture)
+                            .fit_to_exact_size(egui::vec2(width as f32, height as f32))
+                            .sense(egui::Sense::click_and_drag())
+                    );
+
+                    // Handle mouse input
+                    if let Some(ref mut renderer) = self.renderer {
+                        // Track mouse dragging
+                        if response.dragged_by(egui::PointerButton::Primary) {
+                            let delta = response.drag_delta();
+                            renderer.handle_mouse_drag(delta.x, delta.y, "left");
+                        }
+
+                        if response.dragged_by(egui::PointerButton::Secondary) {
+                            let delta = response.drag_delta();
+                            renderer.handle_mouse_drag(delta.x, delta.y, "right");
+                        }
+
+                        // Handle scroll
+                        if response.hovered() {
+                            let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
+                            if scroll_delta != 0.0 {
+                                renderer.handle_mouse_scroll(scroll_delta * 0.01);
+                            }
+                        }
+                    }
+
+                    // Request repaint for continuous updates
+                    ctx.request_repaint();
+                }
+                Err(e) => {
+                    ui.label(format!("Render error: {}", e));
+                }
+            }
+        }
     }
 }

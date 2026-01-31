@@ -137,7 +137,7 @@ VkPipeline PipelineFactory::createPipeline(VkDevice device, const PipelineConfig
     return pipeline;
 }
 
-VkPipelineLayout PipelineFactory::createPipelineLayout(VkDevice device,
+VkPipelineLayout PipelineFactory::createPipelineLayout(VkDevice                                  device,
                                                        const std::vector<VkDescriptorSetLayout>& descriptorLayouts) {
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -174,7 +174,8 @@ std::vector<char> PipelineFactory::readFile(const std::string& filename) {
 
     for (const auto& path : candidates) {
         std::ifstream file(path, std::ios::ate | std::ios::binary);
-        if (!file.is_open()) continue;
+        if (!file.is_open())
+            continue;
         const size_t      fileSize = static_cast<size_t>(file.tellg());
         std::vector<char> buffer(fileSize);
         file.seekg(0);

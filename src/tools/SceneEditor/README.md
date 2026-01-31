@@ -4,10 +4,12 @@ Rust-based GUI application for editing 3D scene object transforms.
 
 ## What It Does
 
-Interactive visual editor for scene configuration files:
+Interactive visual editor for scene configuration files with real-time 3D rendering:
+- **3D Visualization**: Real-time rendering of GLTF/GLB models with wgpu
 - Load JSON scene configs (like `bmw.glb.json`)
-- Edit object transforms: position, rotation, scale
+- Edit object transforms: position, rotation, scale with live preview
 - Modify model and camera settings
+- Interactive camera controls (orbital + scene camera modes)
 - Save changes back to JSON
 - Track unsaved changes
 - Add/delete objects
@@ -16,13 +18,17 @@ Interactive visual editor for scene configuration files:
 
 ### Launch with Config File
 ```bash
-# From project root via Makefile
-make run-editor
+# From SceneEditor directory
+cd src/tools/SceneEditor
 
-# Direct with specific config
-./target/release/scene_editor ../../assets/models/bmw/bmw.glb.json
+# Via Makefile (recommended)
+make run-bmw
 
-# Direct with example config
+# Or build and run manually
+cargo build --release
+./target/release/scene_editor ../../../assets/models/bmw/bmw.glb.json
+
+# Run with example config
 ./target/release/scene_editor
 ```
 
@@ -42,6 +48,7 @@ cargo build --release
 - **💾 Save** - Write changes to JSON file
 - **🔄 Reload** - Discard changes and reload from file
 - **📋 New Object** - Add new object to scene
+- **📦 Load Model** - Open file browser to select GLTF/GLB model
 - **Status** - Shows save status and unsaved changes indicator
 
 ### Left Panel - Object List
@@ -56,6 +63,17 @@ cargo build --release
 **Objects List:**
 - Click to select object
 - Selected object highlights
+
+### Right Panel - 3D Viewport
+Real-time 3D visualization:
+- **Camera Mode Toggle**: Switch between Scene Camera and Orbital modes
+- **Interactive Controls**:
+  - Left mouse drag: Orbit/rotate camera
+  - Right mouse drag: Pan view
+  - Mouse scroll: Zoom in/out
+  - Reset Camera button
+- **Model Display**: Rendered GLTF model with lighting
+- **Real-time Updates**: See transform changes immediately
 
 ### Center Panel - Transform Editor
 When an object is selected:
@@ -132,11 +150,16 @@ cargo clean
 - Cargo (comes with Rust)
 
 ### Dependencies (auto-installed)
-- **eframe** 0.30 - Application framework
+- **eframe** 0.30 - Application framework (with wgpu backend)
 - **egui** 0.30 - Immediate mode GUI
+- **wgpu** 23 - Modern graphics API (Metal on macOS)
+- **gltf** 1.4 - GLTF model loading
+- **bytemuck** 1.14 - Safe byte casting for GPU data
+- **glam** 0.29 - Math library (vectors, matrices)
 - **serde** 1.0 - Serialization
 - **serde_json** 1.0 - JSON parsing
-- **glam** 0.29 - Math library
+- **rfd** 0.15 - Native file dialogs
+- **pollster** 0.3 - Async runtime
 
 ## Technical Details
 
@@ -151,9 +174,11 @@ main.rs
 ```
 
 ### Files
-- `src/main.rs` - Entry point, eframe setup (51 lines)
-- `src/ui.rs` - egui layout and rendering (227 lines)
-- `src/scene_data.rs` - Data structures and JSON I/O (244 lines)
+- `src/main.rs` - Entry point, eframe setup
+- `src/ui.rs` - egui layout and viewport integration
+- `src/scene_data.rs` - Data structures and JSON I/O
+- `src/renderer.rs` - **New**: wgpu-based 3D renderer with GLTF loading
+- `src/shader.wgsl` - **New**: WGSL vertex/fragment shaders
 - `Cargo.toml` - Dependencies and build config
 - `Makefile` - Convenience build targets
 
@@ -168,11 +193,18 @@ User edits transforms → Mark unsaved → Click Save
                             Serialize → Write JSON
 ```
 
-## Keyboard Shortcuts
+## Controls
 
+### UI Controls
 - **Drag values** - Click and drag left/right to adjust
 - **Precision editing** - Type exact values in input boxes
 - **Esc** - Deselect focused widget
+
+### 3D Viewport Controls
+- **Left mouse drag** - Orbit camera around model
+- **Right mouse drag** - Pan camera view
+- **Mouse scroll** - Zoom in/out
+- **Reset Camera button** - Return to default view
 
 ## Performance
 
@@ -201,7 +233,13 @@ Check that:
 
 ## Future Enhancements
 
-- 3D preview window
+- ✅ ~~3D preview window~~ (Completed!)
+- Texture loading and display
+- Material properties (PBR)
+- Multiple light sources
+- Grid and axis helpers
+- Object picking in 3D view
+- Transform gizmos
 - Undo/redo system
 - Copy/paste transforms
 - Snap to grid

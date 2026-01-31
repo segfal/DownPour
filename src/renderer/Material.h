@@ -133,11 +133,11 @@ struct MaterialDispatcher {
  * Managed by MaterialManager, not exposed to external code.
  */
 struct VulkanMaterialResources {
-    TextureHandle                   baseColor;
-    TextureHandle                   normalMap;
-    TextureHandle                   metallicRoughness;
-    TextureHandle                   emissive;
-    std::vector<VkDescriptorSet>    descriptorSets;  // Per-frame descriptor sets
+    TextureHandle                baseColor;
+    TextureHandle                normalMap;
+    TextureHandle                metallicRoughness;
+    TextureHandle                emissive;
+    std::vector<VkDescriptorSet> descriptorSets;  // Per-frame descriptor sets
 
     bool hasAnyTextures() const {
         return baseColor.isValid() || normalMap.isValid() || metallicRoughness.isValid() || emissive.isValid();

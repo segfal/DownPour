@@ -5,7 +5,6 @@
 #include "core/ResourceManager.h"
 #include "core/SwapChainManager.h"
 #include "core/VulkanContext.h"
-#include "renderer/Camera.h"
 #include "renderer/Material.h"
 #include "renderer/ModelAdapter.h"
 #include "renderer/Vertex.h"
@@ -65,8 +64,7 @@ private:
     static constexpr uint32_t WIDTH  = 800;
     static constexpr uint32_t HEIGHT = 600;
 
-    // Camera and input tracking
-    Camera camera;
+    // Input tracking
     float  lastFrameTime;
     float  lastX          = WIDTH / 2.0f;
     float  lastY          = HEIGHT / 2.0f;

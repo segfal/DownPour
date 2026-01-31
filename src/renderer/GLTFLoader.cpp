@@ -3,6 +3,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
 #include "GLTFLoader.h"
+
 #include "Model.h"
 #include "logger/Logger.h"
 
@@ -171,11 +172,11 @@ bool GLTFLoader::load(const std::string& filepath, Model& outModel) {
                 const tinygltf::Material& gltfMaterial = model.materials[primitive.material];
                 Material                  newMaterial;
                 bool                      dummyFlag = false;
-                newMaterial.name           = gltfMaterial.name;
-                newMaterial.meshIndex      = static_cast<int32_t>(meshIdx);
-                newMaterial.primitiveIndex = static_cast<int32_t>(primIdx);
-                newMaterial.indexStart     = primitiveIndexStart;
-                newMaterial.indexCount     = primitiveIndexCount;
+                newMaterial.name                    = gltfMaterial.name;
+                newMaterial.meshIndex               = static_cast<int32_t>(meshIdx);
+                newMaterial.primitiveIndex          = static_cast<int32_t>(primIdx);
+                newMaterial.indexStart              = primitiveIndexStart;
+                newMaterial.indexCount              = primitiveIndexCount;
 
                 // Name-based glass detection
                 std::string nameLower = gltfMaterial.name;
@@ -301,7 +302,8 @@ bool GLTFLoader::load(const std::string& filepath, Model& outModel) {
         outModel.scenes.push_back(scene);
     }
     outModel.defaultSceneIndex =
-        (model.defaultScene >= 0 && model.defaultScene < static_cast<int>(outModel.scenes.size())) ? model.defaultScene : 0;
+        (model.defaultScene >= 0 && model.defaultScene < static_cast<int>(outModel.scenes.size())) ? model.defaultScene
+                                                                                                   : 0;
 
     return true;
 }
@@ -334,7 +336,7 @@ std::string GLTFLoader::resolveTexturePath(const std::string& modelPath, const s
 }
 
 void GLTFLoader::processGLTFTexture(const std::string& filepath, const void* modelPtr, int textureIndex,
-                                   std::string& outPath, EmbeddedTexture& outEmbedded, bool& outHasFlag) {
+                                    std::string& outPath, EmbeddedTexture& outEmbedded, bool& outHasFlag) {
     if (textureIndex < 0)
         return;
 
@@ -358,4 +360,4 @@ void GLTFLoader::processGLTFTexture(const std::string& filepath, const void* mod
     outHasFlag = true;
 }
 
-} // namespace DownPour
+}  // namespace DownPour

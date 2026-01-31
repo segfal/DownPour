@@ -1,8 +1,9 @@
 #pragma once
 
 #define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 #include "../vulkan/VulkanTypes.h"
+
+#include <GLFW/glfw3.h>
 
 #include <vector>
 
@@ -16,7 +17,7 @@ namespace DownPour {
  */
 class SwapChainManager {
 public:
-    SwapChainManager() = default;
+    SwapChainManager()  = default;
     ~SwapChainManager() = default;
 
     /**
@@ -28,8 +29,8 @@ public:
      * @param window GLFW window for extent queries
      * @param depthFormat Format for depth attachment
      */
-    void initialize(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
-                   GLFWwindow* window, VkFormat depthFormat);
+    void initialize(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, GLFWwindow* window,
+                    VkFormat depthFormat);
 
     /**
      * @brief Clean up swap chain resources
@@ -38,12 +39,12 @@ public:
 
     // Accessors
     VkSwapchainKHR getSwapChain() const { return swapchain; }
-    VkFormat getImageFormat() const { return swapchainImageFormat; }
-    VkExtent2D getExtent() const { return swapchainExtent; }
-    VkRenderPass getRenderPass() const { return renderPass; }
+    VkFormat       getImageFormat() const { return swapchainImageFormat; }
+    VkExtent2D     getExtent() const { return swapchainExtent; }
+    VkRenderPass   getRenderPass() const { return renderPass; }
 
-    const std::vector<VkImage>& getImages() const { return swapchainImages; }
-    const std::vector<VkImageView>& getImageViews() const { return swapchainImageViews; }
+    const std::vector<VkImage>&       getImages() const { return swapchainImages; }
+    const std::vector<VkImageView>&   getImageViews() const { return swapchainImageViews; }
     const std::vector<VkFramebuffer>& getFramebuffers() const { return swapchainFramebuffers; }
 
     /**
@@ -67,9 +68,9 @@ private:
     void createRenderPass(VkDevice device);
 
     Vulkan::SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface);
-    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
-    VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
-    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, GLFWwindow* window);
+    VkSurfaceFormatKHR              chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
+    VkPresentModeKHR                chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
+    VkExtent2D                      chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, GLFWwindow* window);
 };
 
-} // namespace DownPour
+}  // namespace DownPour
