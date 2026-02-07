@@ -13,3 +13,6 @@ Output.md
 src/tools/SceneEditor/Cargo.lock
 context/*
 
+*.local.md
+*.bak
+*.bak2

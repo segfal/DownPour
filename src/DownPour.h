@@ -9,14 +9,11 @@
 #include "renderer/ModelAdapter.h"
 #include "renderer/Vertex.h"
 #include "scene/CameraEntity.h"
-#include "scene/CarEntity.h"
 #include "scene/Entity.h"
 #include "scene/RoadEntity.h"
 #include "scene/Scene.h"
 #include "scene/SceneBuilder.h"
 #include "scene/SceneManager.h"
-#include "simulation/WeatherSystem.h"
-#include "simulation/WindshieldSurface.h"
 #include "vulkan/VulkanTypes.h"
 
 #include <GLFW/glfw3.h>
@@ -72,42 +69,6 @@ private:
     bool   cursorCaptured = true;
     float  cameraRotation = 0.0f;
 
-    // Car driving state
-    glm::vec3 carPosition     = glm::vec3(0.0f, 2.0f, 2.0f);
-    float     carVelocity     = 0.0f;
-    float     carRotation     = -90.0f;
-    float     carScaleFactor  = 1.0f;
-    float     carBottomOffset = 0.0f;  // Dynamically calculated vertical offset
-
-    /**
-     * @brief Index ranges for specific car parts that need animation
-     */
-    /**
-     * @brief Essential car parts tracking for animation
-     */
-    struct CarParts {
-        bool hasSteeringWheelFront = false;
-        bool hasSteeringWheelBack  = false;
-        bool hasWipers             = false;
-    };
-
-    CarParts carParts;
-    float    steeringWheelRotation = 0.0f;  // Current steering wheel rotation in degrees
-
-    // Simplified cockpit camera - hard-coded offset for initial implementation
-    // Note: These values are in the MODEL'S local space BEFORE the 90° X rotation
-    glm::vec3 cockpitOffset = glm::vec3(0.0f, -0.21f, -0.18f);  // X=0(center), Y=forward(neg), Z=up
-
-    // Debug visualization (simplified)
-    bool           debugVisualizationEnabled = true;  // Toggle with 'V' key
-    VkBuffer       debugVertexBuffer         = VK_NULL_HANDLE;
-    VkDeviceMemory debugVertexBufferMemory   = VK_NULL_HANDLE;
-    uint32_t       debugVertexCount          = 0;
-
-    // Weather simulation system
-    Simulation::WeatherSystem     weatherSystem;
-    Simulation::WindshieldSurface windshield;
-
     // Vulkan context (manages instance, device, surface, queues)
     VulkanContext vulkanContext;
 
@@ -133,36 +94,19 @@ private:
     VkPipeline       worldPipeline       = VK_NULL_HANDLE;
     VkPipelineLayout worldPipelineLayout = VK_NULL_HANDLE;
 
-    // Scene system (NEW)
+    // Scene system
     SceneManager  sceneManager;
-    CarEntity*    playerCar    = nullptr;
     CameraEntity* cameraEntity = nullptr;
 
     // Models (Managed by Adapters)
-    ModelAdapter* carAdapter  = nullptr;
     ModelAdapter* roadAdapter = nullptr;
 
     // Legacy pointers for systems still expecting raw Model*
-    Model* carModelPtr  = nullptr;
     Model* roadModelPtr = nullptr;
 
     // Material management
     MaterialManager*                     materialManager = nullptr;
-    std::unordered_map<size_t, uint32_t> carMaterialIds;
     std::unordered_map<size_t, uint32_t> roadMaterialIds;
-
-    VkPipeline            carPipeline            = VK_NULL_HANDLE;
-    VkPipelineLayout      carPipelineLayout      = VK_NULL_HANDLE;
-    VkDescriptorSetLayout carDescriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool      carDescriptorPool      = VK_NULL_HANDLE;
-
-    // Transparent car pipeline (same layout as carPipeline)
-    VkPipeline carTransparentPipeline = VK_NULL_HANDLE;
-
-    // Windshield rendering
-    VkPipeline            windshieldPipeline         = VK_NULL_HANDLE;
-    VkPipelineLayout      windshieldPipelineLayout   = VK_NULL_HANDLE;
-    VkDescriptorSetLayout windshieldDescriptorLayout = VK_NULL_HANDLE;
 
     // Initialization methods
     void           initWindow();
@@ -211,22 +155,11 @@ private:
 
     void createWorldPipeline();
 
-    // Car rendering methods
-    void loadCarModel();
-    void createCarPipeline();
-    void createCarTransparentPipeline();
-    void createCarDescriptorSets();
+    // Camera initialization
+    void initCamera();
 
     // Road rendering methods
     void loadRoadModel();
-
-    // Windshield rendering methods
-    void createWindshieldPipeline();
-    void renderWindshield(VkCommandBuffer cmd, uint32_t frameIndex);
-
-    // Car simulation methods
-    void updateCarPhysics(float deltaTime);
-    void updateCameraForCockpit();
 
     /**
      * @brief Template helper to safely destroy Vulkan objects with null checks

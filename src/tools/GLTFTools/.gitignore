@@ -1,6 +1,0 @@
-target/
-venv/
-__pycache__/
-*.so
-.DS_Store
-glTF_config/
