@@ -7,8 +7,10 @@
 #include "core/VulkanContext.h"
 #include "renderer/Material.h"
 #include "renderer/ModelAdapter.h"
+#include "renderer/RainRenderer.h"
 #include "renderer/Vertex.h"
 #include "scene/CameraEntity.h"
+#include "scene/CarEntity.h"
 #include "scene/Entity.h"
 #include "scene/RoadEntity.h"
 #include "scene/Scene.h"
@@ -35,6 +37,9 @@ struct CameraUBO {
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
     alignas(16) glm::mat4 viewProj;
+    alignas(16) glm::vec4 sunDirection;    // xyz = dir, w = intensity
+    alignas(16) glm::vec4 cameraPosition;  // xyz = pos, w = time
+    alignas(16) glm::vec4 weatherParams;   // x = rainIntensity, y = wetness, z = windX, w = windZ
 };
 
 /**
@@ -82,8 +87,9 @@ private:
     VkCommandPool                commandPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
     VkPipelineLayout             pipelineLayout      = VK_NULL_HANDLE;
-    VkPipeline                   graphicsPipeline    = VK_NULL_HANDLE;
-    VkDescriptorSetLayout        descriptorSetLayout = VK_NULL_HANDLE;
+    VkPipeline                   graphicsPipeline          = VK_NULL_HANDLE;
+    VkDescriptorSetLayout        descriptorSetLayout       = VK_NULL_HANDLE;
+    VkDescriptorSetLayout        materialDescriptorSetLayout = VK_NULL_HANDLE;
 
     // Depth resources
     VkImage        depthImage       = VK_NULL_HANDLE;
@@ -93,6 +99,12 @@ private:
     // Pipelines
     VkPipeline       worldPipeline       = VK_NULL_HANDLE;
     VkPipelineLayout worldPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline       carPipeline              = VK_NULL_HANDLE;
+    VkPipeline       carTransparentPipeline   = VK_NULL_HANDLE;
+    VkPipeline       terrainPipeline       = VK_NULL_HANDLE;
+    VkPipelineLayout terrainPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline       screenRainPipeline       = VK_NULL_HANDLE;
+    VkPipelineLayout screenRainPipelineLayout = VK_NULL_HANDLE;
 
     // Scene system
     SceneManager  sceneManager;
@@ -100,13 +112,27 @@ private:
 
     // Models (Managed by Adapters)
     ModelAdapter* roadAdapter = nullptr;
+    ModelAdapter* carAdapter  = nullptr;
 
     // Legacy pointers for systems still expecting raw Model*
     Model* roadModelPtr = nullptr;
+    Model* carModelPtr  = nullptr;
+
+    // Car entity
+    CarEntity* carEntity = nullptr;
 
     // Material management
     MaterialManager*                     materialManager = nullptr;
     std::unordered_map<size_t, uint32_t> roadMaterialIds;
+    std::unordered_map<size_t, uint32_t> carMaterialIds;
+
+    // Terrain
+    class TerrainGeometry* terrainGeometry = nullptr;
+    uint32_t               grassMaterialId = 0;
+
+    // Rain system
+    Simulation::WeatherSystem weatherSystem;
+    RainRenderer*             rainRenderer = nullptr;
 
     // Initialization methods
     void           initWindow();
@@ -119,6 +145,7 @@ private:
     void           createSyncObjects();
     void           drawFrame();
     void           createDescriptorSetLayout();
+    void           createMaterialDescriptorSetLayout();
     void           createUniformBuffers();
     void           updateUniformBuffer(uint32_t currentImage);
 
@@ -154,12 +181,19 @@ private:
     void createRoadBuffers();
 
     void createWorldPipeline();
+    void createCarPipeline();
+    void createTerrainPipeline();
+    void createScreenRainPipeline();
 
     // Camera initialization
     void initCamera();
 
-    // Road rendering methods
+    // Model loading
     void loadRoadModel();
+    void loadCarModel();
+
+    // Terrain methods
+    void createTerrain();
 
     /**
      * @brief Template helper to safely destroy Vulkan objects with null checks

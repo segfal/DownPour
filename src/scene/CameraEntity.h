@@ -65,13 +65,16 @@ public:
     void processInput(GLFWwindow* window, float deltaTime);
     void processMouseMovement(float xoffset, float yoffset);
 
+    // Set initial orientation (degrees) — syncs internal yaw/pitch AND node rotation
+    void setInitialOrientation(float yawDeg, float pitchDeg);
+
 private:
     CameraConfig config;
     float aspectRatio = 16.0f / 9.0f;
 
     // Free-fly camera state
-    float movementSpeed = 5.0f;  // m/s
-    float yaw = -90.0f;          // Camera rotation (initialized to look forward)
+    float movementSpeed = 5000.0f;  // 5 * 1000, scaled for 1000x environment
+    float yaw = 0.0f;          // Camera rotation (look along +X, down the road)
     float pitch = 0.0f;          // Camera rotation
 
     ModelAdapter* configSource = nullptr;

@@ -1,0 +1,68 @@
+{
+    "model": {
+        "targetLength": 4.72,
+        "orientation": {
+            "euler": [0, 0, 0],
+            "unit": "degrees"
+        },
+        "scale": {
+            "uniform": 1.0
+        }
+    },
+    "camera": {
+        "cockpit": {
+            "position": { "xyz": [0.35, 1.45, -0.15] },
+            "rotation": { "euler": [5, 180, 0] },
+            "fov": 75.0,
+            "nearPlane": 0.1,
+            "farPlane": 10000000.0
+        }
+    },
+    "roles": {
+        "steering_wheel": "X3:Ani_Steer_Wheel_FL_2",
+        "wheel_FL": "X3:Ani_Wheel_Scale_FL155",
+        "wheel_FR": "X3:Ani_Wheel_Scale_FR151",
+        "wheel_BL": "X3:Ani_Wheel_Scale_BL156",
+        "wheel_BR": "X3:Ani_Wheel_Scale_BR150",
+        "hood": "X3:Ani_Hood22",
+        "trunk": "X3:Ani_Trunk7",
+        "disc_FL": "X3:Ani_Disc_Scale_FL4",
+        "disc_FR": "X3:Ani_Disc_Scale_FR4",
+        "disc_BL": "X3:Ani_Disc_Scale_BL6",
+        "disc_BR": "X3:Ani_Disc_Scale_BR6"
+    },
+    "parts": {
+        "wheels": {
+            "radius": 0.38,
+            "width": 0.25,
+            "rotationAxis": [1, 0, 0],
+            "individual": {
+                "wheel_FL": { "steerMultiplier": 1.0, "driveMultiplier": 1.0 },
+                "wheel_FR": { "steerMultiplier": 1.0, "driveMultiplier": 1.0 },
+                "wheel_BL": { "steerMultiplier": 0.0, "driveMultiplier": 1.0 },
+                "wheel_BR": { "steerMultiplier": 0.0, "driveMultiplier": 1.0 }
+            }
+        },
+        "steeringWheel": {
+            "maxRotation": 450.0,
+            "rotationAxis": [0, 0, 1],
+            "sensitivity": 1.0,
+            "returnSpeed": 3.0
+        }
+    },
+    "physics": {
+        "wheelBase": 2.9,
+        "trackWidth": 1.6,
+        "wheelRadius": 0.38,
+        "maxSteerAngle": 35.0,
+        "maxAcceleration": 8.0,
+        "maxBraking": 15.0,
+        "mass": 2000.0,
+        "dragCoefficient": 0.35,
+        "rollingResistance": 0.015
+    },
+    "initialState": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0]
+    }
+}

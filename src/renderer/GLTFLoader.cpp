@@ -352,10 +352,15 @@ void GLTFLoader::processGLTFTexture(const std::string& filepath, const void* mod
 
     if (!image.uri.empty()) {
         outPath = resolveTexturePath(filepath, image.uri);
+        std::cout << "  Texture " << textureIndex << ": external URI '" << image.uri << "' -> '" << outPath << "'\n";
     } else if (!image.image.empty()) {
         outEmbedded.pixels = image.image;
         outEmbedded.width  = image.width;
         outEmbedded.height = image.height;
+        std::cout << "  Texture " << textureIndex << ": embedded " << image.width << "x" << image.height
+                  << " (" << image.image.size() << " bytes, name: " << image.name << ")\n";
+    } else {
+        std::cerr << "  Texture " << textureIndex << ": NO DATA (uri empty, image empty)\n";
     }
     outHasFlag = true;
 }

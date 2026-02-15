@@ -248,7 +248,7 @@ private:
 
     std::unordered_map<uint32_t, VulkanMaterialResources> resources;
     std::unordered_map<uint32_t, MaterialProperties>      properties;
-    uint32_t                                              nextMaterialId;
+    uint32_t                                              nextMaterialId = 0;
 
     // Default textures for materials without specific textures
     TextureHandle defaultWhiteTexture;

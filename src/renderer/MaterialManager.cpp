@@ -33,11 +33,18 @@ uint32_t MaterialManager::createMaterial(const Material& material) {
 
     // Load base color texture (prefer embedded, fallback to file path, then default white)
     if (material.embeddedBaseColor.isValid()) {
+        std::cout << "  Material '" << material.name << "' (id=" << id
+                  << "): loading embedded baseColor " << material.embeddedBaseColor.width
+                  << "x" << material.embeddedBaseColor.height << "\n";
         gpuResources.baseColor = loadTextureFromData(material.embeddedBaseColor);
+        std::cout << "  -> baseColor valid: " << (gpuResources.baseColor.isValid() ? "YES" : "NO") << "\n";
     } else if (!material.baseColorTexture.empty()) {
+        std::cout << "  Material '" << material.name << "' (id=" << id
+                  << "): loading file baseColor '" << material.baseColorTexture << "'\n";
         gpuResources.baseColor = loadTexture(material.baseColorTexture);
+        std::cout << "  -> baseColor valid: " << (gpuResources.baseColor.isValid() ? "YES" : "NO") << "\n";
     } else {
-        // Use default white texture for materials with only baseColorFactor
+        std::cout << "  Material '" << material.name << "' (id=" << id << "): using default white\n";
         gpuResources.baseColor = defaultWhiteTexture;
     }
 
@@ -77,23 +84,56 @@ uint32_t MaterialManager::createMaterial(const Material& material) {
         if (vkAllocateDescriptorSets(device, &allocInfo, matDescriptorSets.data()) != VK_SUCCESS)
             throw std::runtime_error("Failed to allocate descriptor sets for material");
 
-        // Update all descriptor sets with texture bindings
+        // Update all descriptor sets with texture bindings (all 3 material textures)
         for (uint32_t frame = 0; frame < maxFramesInFlight; frame++) {
-            VkDescriptorImageInfo imageInfo{};
-            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView   = gpuResources.baseColor.view;
-            imageInfo.sampler     = gpuResources.baseColor.sampler;
+            std::array<VkDescriptorImageInfo, 3> imageInfos{};
+            std::array<VkWriteDescriptorSet, 3>  descriptorWrites{};
 
-            VkWriteDescriptorSet descriptorWrite{};
-            descriptorWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet          = matDescriptorSets[frame];
-            descriptorWrite.dstBinding      = 0;
-            descriptorWrite.dstArrayElement = 0;
-            descriptorWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            descriptorWrite.descriptorCount = 1;
-            descriptorWrite.pImageInfo      = &imageInfo;
+            // Binding 0: Base color
+            imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfos[0].imageView   = gpuResources.baseColor.view;
+            imageInfos[0].sampler     = gpuResources.baseColor.sampler;
 
-            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+            descriptorWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[0].dstSet          = matDescriptorSets[frame];
+            descriptorWrites[0].dstBinding      = 0;
+            descriptorWrites[0].dstArrayElement = 0;
+            descriptorWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[0].descriptorCount = 1;
+            descriptorWrites[0].pImageInfo      = &imageInfos[0];
+
+            // Binding 1: Normal map (or default white)
+            const TextureHandle& normalTex =
+                gpuResources.normalMap.isValid() ? gpuResources.normalMap : defaultWhiteTexture;
+            imageInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfos[1].imageView   = normalTex.view;
+            imageInfos[1].sampler     = normalTex.sampler;
+
+            descriptorWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[1].dstSet          = matDescriptorSets[frame];
+            descriptorWrites[1].dstBinding      = 1;
+            descriptorWrites[1].dstArrayElement = 0;
+            descriptorWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[1].descriptorCount = 1;
+            descriptorWrites[1].pImageInfo      = &imageInfos[1];
+
+            // Binding 2: Metallic-roughness (or default white)
+            const TextureHandle& metallicTex =
+                gpuResources.metallicRoughness.isValid() ? gpuResources.metallicRoughness : defaultWhiteTexture;
+            imageInfos[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfos[2].imageView   = metallicTex.view;
+            imageInfos[2].sampler     = metallicTex.sampler;
+
+            descriptorWrites[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[2].dstSet          = matDescriptorSets[frame];
+            descriptorWrites[2].dstBinding      = 2;
+            descriptorWrites[2].dstArrayElement = 0;
+            descriptorWrites[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[2].descriptorCount = 1;
+            descriptorWrites[2].pImageInfo      = &imageInfos[2];
+
+            vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0,
+                                   nullptr);
         }
 
         gpuResources.descriptorSets = matDescriptorSets;  // Store ALL frames
@@ -151,23 +191,56 @@ void MaterialManager::createDescriptorSetsForExistingMaterials() {
             continue;
         }
 
-        // Update all descriptor sets with texture bindings
+        // Update all descriptor sets with texture bindings (all 3 material textures)
         for (uint32_t frame = 0; frame < maxFramesInFlight; frame++) {
-            VkDescriptorImageInfo imageInfo{};
-            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView   = gpuResources.baseColor.view;
-            imageInfo.sampler     = gpuResources.baseColor.sampler;
+            std::array<VkDescriptorImageInfo, 3> imageInfos{};
+            std::array<VkWriteDescriptorSet, 3>  descriptorWrites{};
 
-            VkWriteDescriptorSet descriptorWrite{};
-            descriptorWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet          = matDescriptorSets[frame];
-            descriptorWrite.dstBinding      = 0;
-            descriptorWrite.dstArrayElement = 0;
-            descriptorWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            descriptorWrite.descriptorCount = 1;
-            descriptorWrite.pImageInfo      = &imageInfo;
+            // Binding 0: Base color
+            imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfos[0].imageView   = gpuResources.baseColor.view;
+            imageInfos[0].sampler     = gpuResources.baseColor.sampler;
 
-            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+            descriptorWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[0].dstSet          = matDescriptorSets[frame];
+            descriptorWrites[0].dstBinding      = 0;
+            descriptorWrites[0].dstArrayElement = 0;
+            descriptorWrites[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[0].descriptorCount = 1;
+            descriptorWrites[0].pImageInfo      = &imageInfos[0];
+
+            // Binding 1: Normal map (or default white)
+            const TextureHandle& normalTex =
+                gpuResources.normalMap.isValid() ? gpuResources.normalMap : defaultWhiteTexture;
+            imageInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfos[1].imageView   = normalTex.view;
+            imageInfos[1].sampler     = normalTex.sampler;
+
+            descriptorWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[1].dstSet          = matDescriptorSets[frame];
+            descriptorWrites[1].dstBinding      = 1;
+            descriptorWrites[1].dstArrayElement = 0;
+            descriptorWrites[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[1].descriptorCount = 1;
+            descriptorWrites[1].pImageInfo      = &imageInfos[1];
+
+            // Binding 2: Metallic-roughness (or default white)
+            const TextureHandle& metallicTex =
+                gpuResources.metallicRoughness.isValid() ? gpuResources.metallicRoughness : defaultWhiteTexture;
+            imageInfos[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfos[2].imageView   = metallicTex.view;
+            imageInfos[2].sampler     = metallicTex.sampler;
+
+            descriptorWrites[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[2].dstSet          = matDescriptorSets[frame];
+            descriptorWrites[2].dstBinding      = 2;
+            descriptorWrites[2].dstArrayElement = 0;
+            descriptorWrites[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[2].descriptorCount = 1;
+            descriptorWrites[2].pImageInfo      = &imageInfos[2];
+
+            vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0,
+                                   nullptr);
         }
 
         gpuResources.descriptorSets = matDescriptorSets;  // Store ALL frames

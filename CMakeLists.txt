@@ -28,6 +28,8 @@ add_executable(${PROJECT_NAME}
     src/renderer/GLTFLoader.cpp
     src/renderer/ModelAdapter.cpp
     src/renderer/MaterialManager.cpp
+    src/renderer/TerrainGeometry.cpp
+    src/renderer/RainRenderer.cpp
     src/simulation/WeatherSystem.cpp
     src/simulation/WindshieldSurface.cpp
     src/scene/SceneNode.cpp

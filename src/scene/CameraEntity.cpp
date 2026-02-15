@@ -84,10 +84,7 @@ Mat4 CameraEntity::getViewMatrix() const {
 }
 
 Mat4 CameraEntity::getProjectionMatrix() const {
-    Mat4 proj = glm::perspective(glm::radians(config.fov), aspectRatio, config.nearPlane, config.farPlane);
-    // Flip Y for Vulkan
-    proj[1][1] *= -1;
-    return proj;
+    return glm::perspective(glm::radians(config.fov), aspectRatio, config.nearPlane, config.farPlane);
 }
 
 void CameraEntity::processInput(GLFWwindow* window, float deltaTime) {
@@ -148,6 +145,23 @@ void CameraEntity::processMouseMovement(float xoffset, float yoffset) {
     Quat rotation = yawQuat * pitchQuat;
 
     node->localRotation = rotation;
+    scene->markSubtreeDirty(getRootNode());
+}
+
+void CameraEntity::setInitialOrientation(float yawDeg, float pitchDeg) {
+    yaw = yawDeg;
+    pitch = glm::clamp(pitchDeg, -89.0f, 89.0f);
+
+    // Apply to node so the camera is oriented correctly before any mouse movement
+    Scene* scene = getScene();
+    if (!scene || !getRootNode().isValid()) return;
+
+    SceneNode* node = scene->getNode(getRootNode());
+    if (!node) return;
+
+    Quat pitchQuat = glm::angleAxis(glm::radians(pitch), Vec3(1.0f, 0.0f, 0.0f));
+    Quat yawQuat = glm::angleAxis(glm::radians(yaw), Vec3(0.0f, 1.0f, 0.0f));
+    node->localRotation = yawQuat * pitchQuat;
     scene->markSubtreeDirty(getRootNode());
 }
 
