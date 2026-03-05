@@ -16,6 +16,7 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 view;
     mat4 projection;
     mat4 viewProjection;
+    mat4 invViewProjection;  // inverse(viewProjection) for depth-to-world reconstruction
     vec4 sunDirection;
     vec4 cameraPosition;   // w = elapsed time
     vec4 weatherParams;    // x = rainIntensity, y = wetness, z = windX, w = windZ
@@ -248,10 +249,20 @@ void main() {
     float specularStrength = max(sunDir.y, 0.1) * (1.0 - rainIntensity * 0.5);
     vec3 highlightColor = vec3(1.0, 0.98, 0.95) * specularStrength;
 
-    // Mix dark water tint with bright highlight
-    // Drops mostly darken, but have a bright edge/highlight
+    // Lens-bulge: each drop acts as a tiny convex lens.
+    // The highlight shifts toward the screen-space projection of the sun,
+    // simulating the bright caustic spot you see at the top of a real raindrop.
+    // We approximate this by brightening the edge of each drop that faces the sun.
+    vec2 sunScreen = normalize(sunDir.xy + vec2(0.001));  // sun projected to 2D
+    // Edge brightening: stronger where fragUV aligns with the sun projection
+    float edgeHighlight = dot(normalize(fragUV - vec2(0.5)), sunScreen);
+    edgeHighlight = max(edgeHighlight, 0.0);
+    // Apply bulge specular only where drops are present
+    vec3 bulgeHighlight = vec3(1.0, 0.99, 0.97) * edgeHighlight * drops * 0.5;
+
+    // Mix dark water tint with bright highlight + lens-bulge
     float highlightMask = drops * 0.4 + streaks * 0.3;
-    vec3 finalColor = mix(waterTint, highlightColor, highlightMask * 0.5);
+    vec3 finalColor = mix(waterTint, highlightColor, highlightMask * 0.5) + bulgeHighlight;
 
     // Alpha: stronger effect = more visible overlay
     float alpha = clamp(totalEffect, 0.0, 0.6);

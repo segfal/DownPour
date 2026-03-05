@@ -4,6 +4,7 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 view;
     mat4 projection;
     mat4 viewProjection;
+    mat4 invViewProjection;  // inverse(viewProjection) for depth-to-world reconstruction
     vec4 sunDirection;    // xyz = dir, w = intensity
     vec4 cameraPosition;  // xyz = pos, w = time
     vec4 weatherParams;   // x = rainIntensity, y = wetness, z = windX, w = windZ

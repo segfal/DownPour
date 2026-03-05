@@ -8,6 +8,7 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 view;
     mat4 projection;
     mat4 viewProjection;
+    mat4 invViewProjection;  // inverse(viewProjection) for depth-to-world reconstruction
     vec4 sunDirection;
     vec4 cameraPosition;
     vec4 weatherParams;
@@ -22,6 +23,7 @@ layout(location = 4) in float inSize;
 layout(location = 0) out vec2 fragUV;
 layout(location = 1) out float fragAlpha;
 layout(location = 2) out float fragDistance;
+layout(location = 3) out float fragSize;
 
 void main() {
     vec3 velDir = normalize(inVelocity);
@@ -45,4 +47,5 @@ void main() {
     fragUV = inCorner * 0.5 + 0.5;
     fragAlpha = inAlpha;
     fragDistance = length(camera.cameraPosition.xyz - inPosition);
+    fragSize = inSize;
 }

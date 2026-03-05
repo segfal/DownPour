@@ -38,6 +38,16 @@ bool ModelAdapter::load(const std::string& filepath, VkDevice device, VkPhysical
         targetLength = (maxB.z - minB.z);
     }
 
+    // Compute meters-to-mesh-units conversion from raw vertex bounds
+    // Raw mesh Z range / targetLength gives mesh units per real meter
+    // e.g., 47.1 raw units / 4.72m = 9.98 mesh units per meter
+    if (targetLength > 0.01f) {
+        float rawMeshLength = model->getMaxBounds().z - model->getMinBounds().z;
+        if (rawMeshLength > 0.01f) {
+            metersToMeshUnits = rawMeshLength / targetLength;
+        }
+    }
+
     return true;
 }
 
@@ -120,9 +130,12 @@ bool ModelAdapter::loadMetadata(const std::string& filepath) {
                 parseCam(c["cockpit"], cameraConfig.cockpit);
 
             if (c.contains("chase")) {
-                cameraConfig.chase.distance  = c["chase"].value("distance", 5.0f);
-                cameraConfig.chase.height    = c["chase"].value("height", 1.5f);
-                cameraConfig.chase.stiffness = c["chase"].value("stiffness", 5.0f);
+                auto& chase                  = c["chase"];
+                cameraConfig.chase.distance  = chase.value("distance", 8.0f);
+                cameraConfig.chase.height    = chase.value("height", 3.0f);
+                cameraConfig.chase.stiffness = chase.value("stiffness", 5.0f);
+                if (chase.contains("damping"))
+                    cameraConfig.chase.damping = chase["damping"].get<float>();
             }
 
             if (c.contains("thirdPerson")) {
@@ -130,6 +143,39 @@ bool ModelAdapter::loadMetadata(const std::string& filepath) {
                 cameraConfig.thirdPerson.height   = c["thirdPerson"].value("height", 3.0f);
                 cameraConfig.thirdPerson.angle    = c["thirdPerson"].value("angle", 0.0f);
             }
+
+            if (c.contains("bumper")) {
+                auto& bumper = c["bumper"];
+                if (bumper.contains("position") && bumper["position"].contains("xyz") &&
+                    bumper["position"]["xyz"].size() == 3) {
+                    cameraConfig.bumper.position = Vec3(bumper["position"]["xyz"][0],
+                                                        bumper["position"]["xyz"][1],
+                                                        bumper["position"]["xyz"][2]);
+                }
+            }
+
+            if (c.contains("orbit")) {
+                auto& orbit = c["orbit"];
+                if (orbit.contains("defaultDistance"))
+                    cameraConfig.orbit.defaultDistance = orbit["defaultDistance"].get<float>();
+                if (orbit.contains("minDistance"))
+                    cameraConfig.orbit.minDistance = orbit["minDistance"].get<float>();
+                if (orbit.contains("maxDistance"))
+                    cameraConfig.orbit.maxDistance = orbit["maxDistance"].get<float>();
+                if (orbit.contains("defaultPitch"))
+                    cameraConfig.orbit.defaultPitch = orbit["defaultPitch"].get<float>();
+            }
+
+            if (c.contains("headBob")) {
+                auto& hb = c["headBob"];
+                if (hb.contains("amplitude"))
+                    cameraConfig.headBob.amplitude = hb["amplitude"].get<float>();
+                if (hb.contains("frequency"))
+                    cameraConfig.headBob.frequency = hb["frequency"].get<float>();
+                if (hb.contains("speedRef"))
+                    cameraConfig.headBob.speedRef = hb["speedRef"].get<float>();
+            }
+
             cameraConfig.hasData = true;
         }
 
@@ -242,12 +288,19 @@ bool ModelAdapter::loadMetadata(const std::string& filepath) {
             physics.trackWidth        = ph.value("trackWidth", physics.trackWidth);
             physics.wheelRadius       = ph.value("wheelRadius", physics.wheelRadius);
             physics.maxSteerAngle     = ph.value("maxSteerAngle", physics.maxSteerAngle);
+            physics.maxSpeed          = ph.value("maxSpeed", physics.maxSpeed);
             physics.maxAcceleration   = ph.value("maxAcceleration", physics.maxAcceleration);
             physics.maxBraking        = ph.value("maxBraking", physics.maxBraking);
             physics.mass              = ph.value("mass", 1500.0f);
             physics.dragCoefficient   = ph.value("dragCoefficient", 0.3f);
-            physics.rollingResistance = ph.value("rollingResistance", 0.015f);
-            physics.hasData           = true;
+            physics.rollingResistance    = ph.value("rollingResistance", 0.015f);
+            if (ph.contains("maxReverseSpeed"))
+                physics.maxReverseSpeed = ph["maxReverseSpeed"].get<float>();
+            if (ph.contains("reverseAcceleration"))
+                physics.reverseAcceleration = ph["reverseAcceleration"].get<float>();
+            if (ph.contains("steerReductionFactor"))
+                physics.steerReductionFactor = ph["steerReductionFactor"].get<float>();
+            physics.hasData              = true;
         }
 
         // --- 6. Animation Configuration ---

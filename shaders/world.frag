@@ -3,6 +3,53 @@
 const float PI = 3.14159265359;
 
 // ============================================================================
+// CONFIG — Tweak these to adjust road appearance without touching logic
+// Recompile with: glslc shaders/world.frag -o shaders/world.frag.spv
+// ============================================================================
+
+// --- Texture tiling ---
+const float ASPHALT_TILE_SIZE  = 5000.0;  // world units per UV tile (5m at WORLD_SCALE=1000)
+
+// --- Road markings (world units, WORLD_SCALE=1000 → 1000 units = 1 meter) ---
+const float CENTER_LINE_WIDTH  = 120.0;   // center dashed yellow line full width
+const float CENTER_DASH_PERIOD = 8000.0;  // dash+gap cycle length (8m)
+const float CENTER_DASH_LEN    = 3000.0;  // dash portion of the cycle (3m)
+const vec3  CENTER_LINE_COLOR  = vec3(0.95, 0.8, 0.1);
+
+const float LANE_LINE_WIDTH    = 100.0;   // lane edge dashed white line full width
+const float LANE_LINE_OFFSET   = 3700.0;  // distance from center to lane lines (3.7m)
+const vec3  LANE_LINE_COLOR    = vec3(0.9, 0.9, 0.85);
+
+const float SHOULDER_LINE_WIDTH  = 150.0;   // shoulder solid white line full width
+const float SHOULDER_LINE_OFFSET = 7400.0;  // distance from center to shoulder (7.4m)
+
+// --- Marking surface ---
+const float MARKING_ROUGHNESS  = 0.35;
+
+// --- Wet surface ---
+const float WET_DARKEN         = 0.55;    // base color multiplier when fully wet
+const float WET_ROUGHNESS      = 0.08;    // roughness when fully wet
+const float SPLASH_BUMP_SCALE  = 0.15;    // normal perturbation from splash ripples
+
+// --- Micro-detail noise (breaks up asphalt uniformity) ---
+const float DETAIL_NOISE_SCALE = 0.003;   // frequency (higher = finer grain)
+const float DETAIL_NOISE_AMP   = 0.08;    // strength (0 = off, 0.1 = subtle)
+const float PATCH_NOISE_SCALE  = 0.0003;  // low-freq patchy color variation
+const float PATCH_NOISE_AMP    = 0.06;    // strength of patchy variation
+
+// --- Ambient & Sun ---
+const vec3  SUN_COLOR          = vec3(1.0, 0.98, 0.92);
+const vec3  AMBIENT_SUNNY      = vec3(0.22, 0.24, 0.30);
+const vec3  AMBIENT_RAINY      = vec3(0.25, 0.26, 0.28);
+const float RAIN_SUN_DIM       = 0.35;    // sun intensity multiplier during full rain
+
+// --- Fog (density values scaled for WORLD_SCALE=1000) ---
+const float FOG_DENSITY_SUNNY  = 0.0000002;
+const float FOG_DENSITY_RAINY  = 0.0000012;
+const vec3  FOG_COLOR_SUNNY    = vec3(0.75, 0.85, 1.0);
+const vec3  FOG_COLOR_RAINY    = vec3(0.55, 0.58, 0.62);
+
+// ============================================================================
 // Descriptor Sets
 // ============================================================================
 
@@ -11,6 +58,7 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 view;
     mat4 projection;
     mat4 viewProjection;
+    mat4 invViewProjection;  // inverse(viewProjection) for depth-to-world reconstruction
     vec4 sunDirection;    // xyz = direction toward sun, w = intensity
     vec4 cameraPosition;  // xyz = world-space position, w = elapsed time
     vec4 weatherParams;   // x = rainIntensity, y = wetness, z = windX, w = windZ
@@ -99,6 +147,17 @@ vec4 hash4(vec2 p) {
         fract(sin(dot(p, vec2(420.3,  37.1))) * 43758.5453),
         fract(sin(dot(p, vec2( 53.7, 494.3))) * 43758.5453)
     );
+}
+
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
 // ============================================================================
@@ -214,31 +273,29 @@ void roadMarkings(vec3 worldPos, out vec3 markingColor, out float markingBlend) 
     float dxdScreen = fwidth(x);
     float dzdScreen = fwidth(z);
 
-    // Center dashed yellow line: x = 0, 12cm wide, 3m dash / 5m gap
-    float centerHalfWidth = 0.06;
-    float centerEdge = smoothstep(centerHalfWidth + dxdScreen, centerHalfWidth - dxdScreen, abs(x));
-    float dashPhase = mod(z, 8.0);
-    float dashMask = smoothstep(3.0 + dzdScreen, 3.0 - dzdScreen, dashPhase)
+    // Center dashed yellow line
+    float centerHW = CENTER_LINE_WIDTH * 0.5;
+    float centerEdge = smoothstep(centerHW + dxdScreen, centerHW - dxdScreen, abs(x));
+    float dashPhase = mod(z, CENTER_DASH_PERIOD);
+    float dashMask = smoothstep(CENTER_DASH_LEN + dzdScreen, CENTER_DASH_LEN - dzdScreen, dashPhase)
                    * smoothstep(-dzdScreen, dzdScreen, dashPhase);
     float centerMark = centerEdge * dashMask;
-    vec3 yellowColor = vec3(0.95, 0.8, 0.1);
 
-    // Lane edge dashed white lines: x = ±3.7m, 10cm wide
-    float laneHalfWidth = 0.05;
-    float laneEdge = smoothstep(laneHalfWidth + dxdScreen, laneHalfWidth - dxdScreen, abs(abs(x) - 3.7));
+    // Lane edge dashed white lines
+    float laneHW = LANE_LINE_WIDTH * 0.5;
+    float laneEdge = smoothstep(laneHW + dxdScreen, laneHW - dxdScreen, abs(abs(x) - LANE_LINE_OFFSET));
     float laneMark = laneEdge * dashMask;
-    vec3 whiteColor = vec3(0.9, 0.9, 0.85);
 
-    // Shoulder solid white lines: x = ±7.4m, 15cm wide
-    float shoulderHalfWidth = 0.075;
-    float shoulderMark = smoothstep(shoulderHalfWidth + dxdScreen, shoulderHalfWidth - dxdScreen, abs(abs(x) - 7.4));
+    // Shoulder solid white lines
+    float shoulderHW = SHOULDER_LINE_WIDTH * 0.5;
+    float shoulderMark = smoothstep(shoulderHW + dxdScreen, shoulderHW - dxdScreen, abs(abs(x) - SHOULDER_LINE_OFFSET));
 
     markingBlend = max(shoulderMark, laneMark);
-    markingColor = whiteColor;
+    markingColor = LANE_LINE_COLOR;
 
     if (centerMark > 0.001) {
         markingBlend = centerMark;
-        markingColor = yellowColor;
+        markingColor = CENTER_LINE_COLOR;
     }
 }
 
@@ -253,15 +310,26 @@ void main() {
     // --------------------------------------------------------------------
     // 1. Sample Material Textures (stochastic anti-tiling)
     // --------------------------------------------------------------------
-    // Compute stochastic UVs once, reuse for all PBR maps so
-    // base color, normal, and metallic-roughness stay in sync
-    StochasticUV suv = computeStochasticUV(fragTexCoord);
+    // World-space UVs for proper tiling regardless of model scale
+    vec2 worldUV = fragWorldPos.xz / ASPHALT_TILE_SIZE;
+    StochasticUV suv = computeStochasticUV(worldUV);
 
     vec3 baseColor = textureNoTile3(baseColorMap, suv);
+
+    // Micro-detail noise: fine grain breaks up texture uniformity
+    float detailNoise = noise(fragWorldPos.xz * DETAIL_NOISE_SCALE);
+    baseColor *= 1.0 + (detailNoise - 0.5) * DETAIL_NOISE_AMP * 2.0;
+
+    // Patchy low-freq variation: simulates wear, oil stains, aging
+    float patchNoise = noise(fragWorldPos.xz * PATCH_NOISE_SCALE);
+    baseColor *= 1.0 + (patchNoise - 0.5) * PATCH_NOISE_AMP * 2.0;
 
     vec2 mrSample = textureNoTile2(metallicRoughnessMap, suv);
     float roughness = clamp(mrSample.x, 0.04, 1.0);
     float metallic  = mrSample.y;
+
+    // Roughness also varies slightly with patch noise (worn areas smoother)
+    roughness *= 1.0 + (patchNoise - 0.5) * 0.1;
 
     // --------------------------------------------------------------------
     // 2. Normal Mapping
@@ -273,7 +341,7 @@ void main() {
 
     if (!isDefaultNormalMap) {
         vec3 tangentNormal = normalSample * 2.0 - 1.0;
-        mat3 TBN = cotangentFrame(N, fragWorldPos, fragTexCoord);
+        mat3 TBN = cotangentFrame(N, fragWorldPos, worldUV);
         N = normalize(TBN * tangentNormal);
     }
 
@@ -285,22 +353,20 @@ void main() {
     roadMarkings(fragWorldPos, markingColor, markingBlend);
 
     baseColor = mix(baseColor, markingColor, markingBlend);
-    roughness = mix(roughness, 0.35, markingBlend);
+    roughness = mix(roughness, MARKING_ROUGHNESS, markingBlend);
     metallic  = mix(metallic, 0.0, markingBlend);
 
     // --------------------------------------------------------------------
     // 3b. Wet Surface Effects
     // --------------------------------------------------------------------
-    // Wet asphalt: darker (water fills micro-cavities, trapping light)
-    // and smoother (water film creates a glossy coating)
-    baseColor *= mix(1.0, 0.55, wetness);
-    roughness  = mix(roughness, 0.08, wetness);
+    // Wet asphalt: darker (water fills micro-cavities) and smoother (water film)
+    baseColor *= mix(1.0, WET_DARKEN, wetness);
+    roughness  = mix(roughness, WET_ROUGHNESS, wetness);
 
     // Splash ripple normal perturbation on wet road
     float splash = splashRipples(fragWorldPos.xz, elapsedTime, rainIntensity);
     if (splash > 0.01) {
-        // Perturb normal slightly for splash highlight
-        float splashBump = splash * 0.15;
+        float splashBump = splash * SPLASH_BUMP_SCALE;
         N = normalize(N + vec3(splashBump, 0.0, splashBump));
     }
 
@@ -329,17 +395,16 @@ void main() {
     vec3 diffuse = kD * baseColor / PI;
 
     // Sun radiance — reduced during rain (cloud cover)
-    vec3 sunColor = vec3(1.0, 0.98, 0.92);
     float sunIntensity = max(camera.sunDirection.w, 1.0);
-    sunIntensity *= mix(1.0, 0.35, rainIntensity);  // Dim sun in rain
-    vec3 sunRadiance = sunColor * sunIntensity;
+    sunIntensity *= mix(1.0, RAIN_SUN_DIM, rainIntensity);
+    vec3 sunRadiance = SUN_COLOR * sunIntensity;
 
     vec3 Lo = (diffuse + specular) * sunRadiance * NdotL;
 
     // --------------------------------------------------------------------
     // 5. Ambient Lighting (increases slightly in rain — overcast scatter)
     // --------------------------------------------------------------------
-    vec3 ambientBase = mix(vec3(0.22, 0.24, 0.30), vec3(0.25, 0.26, 0.28), rainIntensity);
+    vec3 ambientBase = mix(AMBIENT_SUNNY, AMBIENT_RAINY, rainIntensity);
     vec3 ambient = ambientBase * baseColor;
 
     vec3 color = ambient + Lo;
@@ -347,9 +412,9 @@ void main() {
     // --------------------------------------------------------------------
     // 6. Exponential Fog (density increases with rain)
     // --------------------------------------------------------------------
-    float fogDensity = mix(0.0000002, 0.0000012, rainIntensity); // scaled for 1000x environment
+    float fogDensity = mix(FOG_DENSITY_SUNNY, FOG_DENSITY_RAINY, rainIntensity);
     float fogFactor = 1.0 - exp(-fogDensity * fragDistance);
-    vec3 fogColor = mix(vec3(0.75, 0.85, 1.0), vec3(0.55, 0.58, 0.62), rainIntensity);
+    vec3 fogColor = mix(FOG_COLOR_SUNNY, FOG_COLOR_RAINY, rainIntensity);
     color = mix(color, fogColor, fogFactor);
 
     // --------------------------------------------------------------------

@@ -10,6 +10,7 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 view;
     mat4 projection;
     mat4 viewProjection;
+    mat4 invViewProjection;  // inverse(viewProjection) for depth-to-world reconstruction
     vec4 sunDirection;    // xyz = direction toward sun, w = intensity
     vec4 cameraPosition;  // xyz = world-space position, w = elapsed time
     vec4 weatherParams;   // x = rainIntensity, y = wetness, z = windX, w = windZ
@@ -122,10 +123,14 @@ void main() {
     }
 
     // --------------------------------------------------------------------
-    // 3. Wet Car Surface Effects (subtle — just smooths and darkens slightly)
+    // 3. Wet Car Surface Effects
+    // A thin water film darkens the albedo and dramatically reduces roughness,
+    // creating sharp specular highlights and grazing-angle reflections.
     // --------------------------------------------------------------------
-    baseColor *= mix(1.0, 0.85, wetness);
-    roughness  = mix(roughness, max(roughness * 0.5, 0.04), wetness);
+    // Albedo: water absorbs light → surface darkens when wet
+    baseColor *= mix(1.0, 0.75, wetness);
+    // Roughness: water film makes the surface much shinier
+    roughness = mix(roughness, max(roughness * 0.3, 0.04), wetness);
 
     // --------------------------------------------------------------------
     // 4. Cook-Torrance PBR BRDF
@@ -139,7 +144,10 @@ void main() {
     float NdotH = max(dot(N, H), 0.0);
     float HdotV = max(dot(H, V), 0.0);
 
+    // F0: water film (n≈1.33) raises the minimum reflectance at grazing angles
     vec3 F0 = mix(vec3(0.04), baseColor, metallic);
+    // Blend toward water's F0 (≈0.02 at normal incidence, but higher grazing) when wet
+    F0 = mix(F0, max(F0, vec3(0.06)), wetness * 0.6);
 
     float D = distributionGGX(NdotH, roughness);
     float G = geometrySmith(NdotV, NdotL, roughness);
