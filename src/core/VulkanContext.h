@@ -1,8 +1,9 @@
 #pragma once
 
 #define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 #include "../vulkan/VulkanTypes.h"
+
+#include <GLFW/glfw3.h>
 
 #include <vector>
 
@@ -17,7 +18,7 @@ namespace DownPour {
  */
 class VulkanContext {
 public:
-    VulkanContext() = default;
+    VulkanContext()  = default;
     ~VulkanContext() = default;
 
     /**
@@ -33,22 +34,22 @@ public:
     void cleanup();
 
     // Accessors
-    VkInstance getInstance() const { return instance; }
+    VkInstance       getInstance() const { return instance; }
     VkPhysicalDevice getPhysicalDevice() const { return physicalDevice; }
-    VkDevice getDevice() const { return device; }
-    VkSurfaceKHR getSurface() const { return surface; }
-    VkQueue getGraphicsQueue() const { return graphicsQueue; }
-    VkQueue getPresentQueue() const { return presentQueue; }
+    VkDevice         getDevice() const { return device; }
+    VkSurfaceKHR     getSurface() const { return surface; }
+    VkQueue          getGraphicsQueue() const { return graphicsQueue; }
+    VkQueue          getPresentQueue() const { return presentQueue; }
 
     Vulkan::QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
 
 private:
-    VkInstance instance = VK_NULL_HANDLE;
+    VkInstance       instance       = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-    VkDevice device = VK_NULL_HANDLE;
-    VkSurfaceKHR surface = VK_NULL_HANDLE;
-    VkQueue graphicsQueue = VK_NULL_HANDLE;
-    VkQueue presentQueue = VK_NULL_HANDLE;
+    VkDevice         device         = VK_NULL_HANDLE;
+    VkSurfaceKHR     surface        = VK_NULL_HANDLE;
+    VkQueue          graphicsQueue  = VK_NULL_HANDLE;
+    VkQueue          presentQueue   = VK_NULL_HANDLE;
 
     GLFWwindow* window = nullptr;
 
@@ -58,4 +59,4 @@ private:
     void createLogicalDevice();
 };
 
-} // namespace DownPour
+}  // namespace DownPour

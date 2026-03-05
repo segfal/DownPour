@@ -17,10 +17,18 @@ struct PipelineConfig {
     VkPipelineLayout                   layout           = VK_NULL_HANDLE;
     bool                               enableBlending   = false;
     bool                               enableDepthWrite = true;
+    VkCompareOp                        depthCompareOp   = VK_COMPARE_OP_LESS;
     VkCullModeFlags                    cullMode         = VK_CULL_MODE_BACK_BIT;
     VkPrimitiveTopology                topology         = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     float                              lineWidth        = 1.0f;
     std::vector<VkDescriptorSetLayout> descriptorLayouts;
+
+    // Optional custom vertex input (if non-empty, overrides default Vertex layout)
+    std::vector<VkVertexInputBindingDescription>   customBindings;
+    std::vector<VkVertexInputAttributeDescription> customAttributes;
+
+    // When true, pipeline has no vertex input (e.g., fullscreen triangle from gl_VertexIndex)
+    bool noVertexInput = false;
 };
 
 /**
@@ -30,7 +38,7 @@ struct PipelineConfig {
  */
 class PipelineFactory {
 public:
-    PipelineFactory() = default;
+    PipelineFactory()  = default;
     ~PipelineFactory() = default;
 
     /**
@@ -52,8 +60,15 @@ public:
      * @param descriptorLayouts Descriptor set layouts
      * @return Created pipeline layout handle
      */
-    static VkPipelineLayout createPipelineLayout(VkDevice device,
+    static VkPipelineLayout createPipelineLayout(VkDevice                                  device,
                                                  const std::vector<VkDescriptorSetLayout>& descriptorLayouts);
+
+    /**
+     * @brief Create a pipeline layout with push constants
+     */
+    static VkPipelineLayout createPipelineLayoutWithPushConstants(
+        VkDevice device, const std::vector<VkDescriptorSetLayout>& descriptorLayouts,
+        const std::vector<VkPushConstantRange>& pushConstantRanges);
 
 private:
     /**

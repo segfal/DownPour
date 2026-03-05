@@ -43,6 +43,10 @@ public:
     Vec3  getModelScale() const { return modelScale; }
     Vec3  getPositionOffset() const { return positionOffset; }
 
+    // Computed conversion factor: how many raw mesh units per real meter
+    // For cockpit positioning: meshPos = metersPos × metersToMeshUnits
+    float getMetersToMeshUnits() const { return metersToMeshUnits; }
+
     // Camera configuration (expanded)
     struct CameraConfig {
         struct CockpitCamera {
@@ -55,18 +59,36 @@ public:
             float farPlane      = 10000.0f;
         };
         struct ChaseCamera {
-            float distance  = 5.0f;
-            float height    = 1.5f;
+            float distance  = 8.0f;
+            float height    = 3.0f;
             float stiffness = 5.0f;
+            float damping   = 0.9f;
         };
         struct ThirdPersonCamera {
             float distance = 8.0f;
             float height   = 3.0f;
             float angle    = 0.0f;
         };
+        struct BumperCamera {
+            Vec3 position = Vec3(0.0f, 0.5f, 2.4f);
+        };
+        struct OrbitCamera {
+            float defaultDistance = 12.0f;
+            float minDistance     = 5.0f;
+            float maxDistance     = 30.0f;
+            float defaultPitch   = 20.0f;
+        };
+        struct HeadBob {
+            float amplitude = 0.005f;
+            float frequency = 1.2f;
+            float speedRef  = 10.0f;
+        };
         CockpitCamera     cockpit;
         ChaseCamera       chase;
         ThirdPersonCamera thirdPerson;
+        BumperCamera      bumper;
+        OrbitCamera       orbit;
+        HeadBob           headBob;
         bool              hasData = false;
     };
     const CameraConfig& getCameraConfig() const { return cameraConfig; }
@@ -173,12 +195,16 @@ public:
         float trackWidth        = 0.0f;
         float wheelRadius       = 0.0f;
         float maxSteerAngle     = 0.0f;
+        float maxSpeed          = 50.0f;   // m/s (default ~180 km/h)
         float maxAcceleration   = 0.0f;
         float maxBraking        = 0.0f;
         float mass              = 1500.0f;
         float dragCoefficient   = 0.3f;
-        float rollingResistance = 0.015f;
-        bool  hasData           = false;
+        float rollingResistance    = 0.015f;
+        float maxReverseSpeed      = 5.0f;
+        float reverseAcceleration  = 3.0f;
+        float steerReductionFactor = 0.002f;
+        bool  hasData              = false;
     };
     const PhysicsConfig& getPhysicsConfig() const { return physics; }
 
@@ -204,10 +230,11 @@ private:
     Model* model = nullptr;
 
     // Metadata from JSON
-    float targetLength   = 0.0f;
-    Vec3  modelRotation  = Vec3(0.0f);
-    Vec3  modelScale     = Vec3(1.0f);
-    Vec3  positionOffset = Vec3(0.0f);
+    float targetLength      = 0.0f;
+    Vec3  modelRotation     = Vec3(0.0f);
+    Vec3  modelScale        = Vec3(1.0f);
+    Vec3  positionOffset    = Vec3(0.0f);
+    float metersToMeshUnits = 1.0f;  // raw mesh units per real meter
 
     CameraConfig        cameraConfig;
     WindshieldConfig    windshieldConfig;

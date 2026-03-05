@@ -2,112 +2,71 @@
 #pragma once
 
 #include "Entity.h"
-#include "SceneNode.h"
+#include "CameraEntity.h"
+
+struct GLFWwindow;
 
 namespace DownPour {
 
-/**
- * @brief Represents a car entity in the scene
- *
- * Provides specialized access to car parts like wheels, steering wheel, and wipers.
- * This class inherits from Entity and defines standard roles for car components.
- */
+class ModelAdapter;
+
+enum class CarState { Idle, Driving, Braking, Turning };
+
 class CarEntity : public Entity {
 public:
-    using Entity::Entity;
+    CarEntity(const str& name, Scene* scene, ModelAdapter* adapter);
+    ~CarEntity() override;
 
-    // Standard roles for car nodes
-    static constexpr const char* ROLE_WHEEL_FL       = "wheel_FL";
-    static constexpr const char* ROLE_WHEEL_FR       = "wheel_FR";
-    static constexpr const char* ROLE_WHEEL_RL       = "wheel_RL";
-    static constexpr const char* ROLE_WHEEL_RR       = "wheel_RR";
-    static constexpr const char* ROLE_STEERING_WHEEL_FRONT = "steering_wheel_front";
-    static constexpr const char* ROLE_STEERING_WHEEL_BACK = "steering_wheel_back";
-    static constexpr const char* ROLE_WIPER_LEFT     = "left_wiper";
-    static constexpr const char* ROLE_WIPER_RIGHT    = "right_wiper";
-    static constexpr const char* ROLE_HOOD           = "hood";
-    static constexpr const char* ROLE_DOOR_L         = "left_door";
-    static constexpr const char* ROLE_DOOR_R         = "right_door";
-    static constexpr const char* ROLE_HEADLIGHTS     = "headlights";
-    static constexpr const char* ROLE_TAILLIGHTS     = "taillights";
+    // State
+    CarState getState() const { return state; }
+    const char* getStateName() const;
 
-    enum class Side { Left, Right };
+    // Update (call each frame with deltaTime and window for input)
+    void update(float deltaTime, GLFWwindow* window);
 
-    // Sub-structure for car specific state/properties for easier editing
-    struct Config {
-        // Physical dimensions (meters)
-        float wheelBase   = 2.85f;  // Distance between front and rear axles
-        float trackWidth  = 1.60f;  // Distance between left and right wheels
-        float wheelRadius = 0.35f;  // Radius of the wheels
-        float length      = 4.70f;  // Total car length
+    // Camera
+    CameraEntity* getCockpitCamera() const { return cockpitCamera; }
+    void initCockpitCamera(Scene* scene);
 
-        // Steering & Dynamics
-        float maxSteerAngle   = 35.0f;  // degrees
-        float maxAcceleration = 5.0f;   // m/s^2
-        float maxBraking      = 8.0f;   // m/s^2
+    // Model access
+    ModelAdapter* getAdapter() const { return adapter; }
 
-        // NEW: Advanced physics
-        float mass              = 1500.0f;
-        float dragCoefficient   = 0.3f;
-        float rollingResistance = 0.015f;
-
-        // Animation offsets/limits
-        float doorOpenAngle = 45.0f;  // degrees
-        float hoodOpenAngle = 30.0f;  // degrees
-    };
-
-    // ========================================================================
-    // Configuration Getters/Setters
-    // ========================================================================
-    const Config& getConfig() const { return config; }
-    Config&       getConfig() { return config; }
-    void          setConfig(const Config& cfg) { config = cfg; }
-
-    // ========================================================================
-    // Node Getters (for specific car parts)
-    // ========================================================================
-    NodeHandle getWheelNode(Side side, bool front) const;
-    NodeHandle getSteeringWheelFrontNode() const;
-    NodeHandle getSteeringWheelBackNode() const;
-    NodeHandle getWiperNode(Side side) const;
-    NodeHandle getHeadlightsNode() const;
-    NodeHandle getTaillightsNode() const;
-    NodeHandle getHoodNode() const;
-    NodeHandle getDoorNode(Side side) const;
-
-    // ========================================================================
-    // Physics/State Getters
-    // ========================================================================
-    float getWheelBase() const { return config.wheelBase; }
-    float getTrackWidth() const { return config.trackWidth; }
-    float getWheelRadius() const { return config.wheelRadius; }
-    float getMaxSteerAngle() const { return config.maxSteerAngle; }
-    float getLength() const { return config.length; }
-
-    // ========================================================================
-    // Control Methods (Animation/State Control)
-    // ========================================================================
-    void setSteeringAngle(float degrees);  // Rotate steering wheel
-    void setWheelRotation(float radians);  // Rotate all wheels (for driving)
-    void setWiperAngle(float degrees);     // Control wiper animation
-    void setLights(bool on);               // Toggle emissive materials
-    void openDoor(Side side, bool open);   // Animate door rotation
-    void openHood(bool open);              // Animate hood rotation
-
-    // ========================================================================
-    // State Tracking
-    // ========================================================================
-    float getCurrentSteeringAngle() const { return currentSteeringAngle; }
-    float getCurrentWheelRotation() const { return currentWheelRotation; }
-    float getCurrentWiperAngle() const { return currentWiperAngle; }
+    // Heading (radians, 0 = +Z direction)
+    float getHeading() const { return heading; }
+    float getSpeed() const { return speed; }
 
 private:
-    Config config;
+    ModelAdapter* adapter = nullptr;
+    CameraEntity* cockpitCamera = nullptr;
+    CarState state = CarState::Idle;
 
-    // Current animation state
-    float currentSteeringAngle = 0.0f;  // degrees
-    float currentWheelRotation = 0.0f;  // radians (accumulated)
-    float currentWiperAngle    = 0.0f;  // degrees
+    // Physics
+    float speed = 0.0f;
+    float heading = 0.0f;          // radians, 0 = +Z
+    float steeringAngle = 0.0f;    // current steering wheel angle (degrees)
+    float wheelRotation = 0.0f;    // accumulated wheel spin (radians)
+
+    // Original root node rotation (e.g. Sketchfab_model's -90°X)
+    // Must be preserved and combined with heading, never overwritten
+    Quat originalRootRotation = Quat(1.0f, 0.0f, 0.0f, 0.0f);
+    bool hasOriginalRotation = false;
+
+    // Config (read from adapter or defaults)
+    float maxSpeed = 50.0f;
+    float accel = 8.0f;
+    float brakeForce = 15.0f;
+    float maxSteerAngle = 35.0f;
+    float steerSpeed = 90.0f;      // degrees/sec
+    float steerReturn = 120.0f;    // degrees/sec return to center
+    float wheelBase = 2.9f;
+    float wheelRadius = 0.38f;
+    float dragCoeff = 0.35f;
+    float rollingResist = 0.015f;
+
+    void updateInput(float deltaTime, GLFWwindow* window);
+    void updatePhysics(float deltaTime);
+    void updateState(GLFWwindow* window);
+    void updateAnimations();
 };
 
 }  // namespace DownPour

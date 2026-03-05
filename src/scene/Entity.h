@@ -12,20 +12,10 @@ namespace DownPour {
 typedef std::string str;
 using namespace DownPour::Types;
 
-/**
- * @brief High-level game object composed of multiple SceneNodes
- *
- * Represents a logical entity like a car, which consists of multiple
- * parts (body, wheels, doors, etc.) that share a common root transform.
- * Provides a convenient API for manipulating complex hierarchical objects.
- */
+
 class Entity {
 public:
-    /**
-     * @brief Construct a new Entity
-     * @param name Entity name (e.g., "player_car", "enemy_01")
-     * @param scene Scene that owns this entity's nodes
-     */
+
     Entity(const str& name, Scene* scene);
     virtual ~Entity() = default;
 
@@ -57,12 +47,14 @@ public:
     NodeHandle getRootNode() const { return rootNode; }
     const str& getName() const { return name; }
     Scene*     getScene() const { return scene; }
-    
+
 private:
     str        name;
     Scene*     scene;
     NodeHandle rootNode;
-
+    Vec3 position = Vec3(0.0f);
+    Quat rotation = Quat(1.0f, 0.0f, 0.0f, 0.0f);
+    Vec3 scale = Vec3(1.0f);
     // Named node roles (e.g., "wheel_FL", "door_left", "steering_wheel")
     std::unordered_map<str, NodeHandle> namedNodes;
 };

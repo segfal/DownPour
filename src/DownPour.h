@@ -5,9 +5,9 @@
 #include "core/ResourceManager.h"
 #include "core/SwapChainManager.h"
 #include "core/VulkanContext.h"
-#include "renderer/Camera.h"
 #include "renderer/Material.h"
 #include "renderer/ModelAdapter.h"
+#include "renderer/RainRenderer.h"
 #include "renderer/Vertex.h"
 #include "scene/CameraEntity.h"
 #include "scene/CarEntity.h"
@@ -16,8 +16,6 @@
 #include "scene/Scene.h"
 #include "scene/SceneBuilder.h"
 #include "scene/SceneManager.h"
-#include "simulation/WeatherSystem.h"
-#include "simulation/WindshieldSurface.h"
 #include "vulkan/VulkanTypes.h"
 
 #include <GLFW/glfw3.h>
@@ -39,6 +37,9 @@ struct CameraUBO {
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
     alignas(16) glm::mat4 viewProj;
+    alignas(16) glm::vec4 sunDirection;    // xyz = dir, w = intensity
+    alignas(16) glm::vec4 cameraPosition;  // xyz = pos, w = time
+    alignas(16) glm::vec4 weatherParams;   // x = rainIntensity, y = wetness, z = windX, w = windZ
 };
 
 /**
@@ -65,50 +66,13 @@ private:
     static constexpr uint32_t WIDTH  = 800;
     static constexpr uint32_t HEIGHT = 600;
 
-    // Camera and input tracking
-    Camera camera;
+    // Input tracking
     float  lastFrameTime;
     float  lastX          = WIDTH / 2.0f;
     float  lastY          = HEIGHT / 2.0f;
     bool   firstMouse     = true;
     bool   cursorCaptured = true;
     float  cameraRotation = 0.0f;
-
-    // Car driving state
-    glm::vec3 carPosition     = glm::vec3(0.0f, 2.0f, 2.0f);
-    float     carVelocity     = 0.0f;
-    float     carRotation     = -90.0f;
-    float     carScaleFactor  = 1.0f;
-    float     carBottomOffset = 0.0f;  // Dynamically calculated vertical offset
-
-    /**
-     * @brief Index ranges for specific car parts that need animation
-     */
-    /**
-     * @brief Essential car parts tracking for animation
-     */
-    struct CarParts {
-        bool hasSteeringWheelFront = false;
-        bool hasSteeringWheelBack  = false;
-        bool hasWipers             = false;
-    };
-
-    CarParts carParts;
-    float    steeringWheelRotation = 0.0f;  // Current steering wheel rotation in degrees
-
-    // Simplified cockpit camera - hard-coded offset for initial implementation
-    // Note: These values are in the MODEL'S local space BEFORE the 90° X rotation
-    glm::vec3 cockpitOffset = glm::vec3(0.0f, -0.21f, -0.18f);  // X=0(center), Y=forward(neg), Z=up
-
-    // Debug visualization (simplified)
-    bool           debugVisualizationEnabled = true;  // Toggle with 'V' key
-    VkBuffer       debugVertexBuffer         = VK_NULL_HANDLE;
-    VkDeviceMemory debugVertexBufferMemory   = VK_NULL_HANDLE;
-    uint32_t       debugVertexCount          = 0;
-
-    // Weather simulation system
-    Simulation::WeatherSystem     weatherSystem;
-    Simulation::WindshieldSurface windshield;
 
     // Vulkan context (manages instance, device, surface, queues)
     VulkanContext vulkanContext;
@@ -123,8 +87,9 @@ private:
     VkCommandPool                commandPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
     VkPipelineLayout             pipelineLayout      = VK_NULL_HANDLE;
-    VkPipeline                   graphicsPipeline    = VK_NULL_HANDLE;
-    VkDescriptorSetLayout        descriptorSetLayout = VK_NULL_HANDLE;
+    VkPipeline                   graphicsPipeline          = VK_NULL_HANDLE;
+    VkDescriptorSetLayout        descriptorSetLayout       = VK_NULL_HANDLE;
+    VkDescriptorSetLayout        materialDescriptorSetLayout = VK_NULL_HANDLE;
 
     // Depth resources
     VkImage        depthImage       = VK_NULL_HANDLE;
@@ -134,37 +99,40 @@ private:
     // Pipelines
     VkPipeline       worldPipeline       = VK_NULL_HANDLE;
     VkPipelineLayout worldPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline       carPipeline              = VK_NULL_HANDLE;
+    VkPipeline       carTransparentPipeline   = VK_NULL_HANDLE;
+    VkPipeline       terrainPipeline       = VK_NULL_HANDLE;
+    VkPipelineLayout terrainPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline       screenRainPipeline       = VK_NULL_HANDLE;
+    VkPipelineLayout screenRainPipelineLayout = VK_NULL_HANDLE;
 
-    // Scene system (NEW)
+    // Scene system
     SceneManager  sceneManager;
-    CarEntity*    playerCar    = nullptr;
     CameraEntity* cameraEntity = nullptr;
 
     // Models (Managed by Adapters)
-    ModelAdapter* carAdapter  = nullptr;
     ModelAdapter* roadAdapter = nullptr;
+    ModelAdapter* carAdapter  = nullptr;
 
     // Legacy pointers for systems still expecting raw Model*
-    Model* carModelPtr  = nullptr;
     Model* roadModelPtr = nullptr;
+    Model* carModelPtr  = nullptr;
+
+    // Car entity
+    CarEntity* carEntity = nullptr;
 
     // Material management
     MaterialManager*                     materialManager = nullptr;
-    std::unordered_map<size_t, uint32_t> carMaterialIds;
     std::unordered_map<size_t, uint32_t> roadMaterialIds;
+    std::unordered_map<size_t, uint32_t> carMaterialIds;
 
-    VkPipeline            carPipeline            = VK_NULL_HANDLE;
-    VkPipelineLayout      carPipelineLayout      = VK_NULL_HANDLE;
-    VkDescriptorSetLayout carDescriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool      carDescriptorPool      = VK_NULL_HANDLE;
+    // Terrain
+    class TerrainGeometry* terrainGeometry = nullptr;
+    uint32_t               grassMaterialId = 0;
 
-    // Transparent car pipeline (same layout as carPipeline)
-    VkPipeline carTransparentPipeline = VK_NULL_HANDLE;
-
-    // Windshield rendering
-    VkPipeline            windshieldPipeline         = VK_NULL_HANDLE;
-    VkPipelineLayout      windshieldPipelineLayout   = VK_NULL_HANDLE;
-    VkDescriptorSetLayout windshieldDescriptorLayout = VK_NULL_HANDLE;
+    // Rain system
+    Simulation::WeatherSystem weatherSystem;
+    RainRenderer*             rainRenderer = nullptr;
 
     // Initialization methods
     void           initWindow();
@@ -177,6 +145,7 @@ private:
     void           createSyncObjects();
     void           drawFrame();
     void           createDescriptorSetLayout();
+    void           createMaterialDescriptorSetLayout();
     void           createUniformBuffers();
     void           updateUniformBuffer(uint32_t currentImage);
 
@@ -212,23 +181,19 @@ private:
     void createRoadBuffers();
 
     void createWorldPipeline();
-
-    // Car rendering methods
-    void loadCarModel();
     void createCarPipeline();
-    void createCarTransparentPipeline();
-    void createCarDescriptorSets();
+    void createTerrainPipeline();
+    void createScreenRainPipeline();
 
-    // Road rendering methods
+    // Camera initialization
+    void initCamera();
+
+    // Model loading
     void loadRoadModel();
+    void loadCarModel();
 
-    // Windshield rendering methods
-    void createWindshieldPipeline();
-    void renderWindshield(VkCommandBuffer cmd, uint32_t frameIndex);
-
-    // Car simulation methods
-    void updateCarPhysics(float deltaTime);
-    void updateCameraForCockpit();
+    // Terrain methods
+    void createTerrain();
 
     /**
      * @brief Template helper to safely destroy Vulkan objects with null checks

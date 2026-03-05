@@ -1,4 +1,5 @@
 #include "ModelGeometry.h"
+
 #include "Vertex.h"
 
 #include <cstring>
@@ -6,11 +7,8 @@
 
 namespace DownPour {
 
-void ModelGeometry::createBuffers(const std::vector<Vertex>& vertices,
-                                  const std::vector<uint32_t>& indices,
-                                  VkDevice device,
-                                  VkPhysicalDevice physicalDevice,
-                                  VkCommandPool commandPool,
+void ModelGeometry::createBuffers(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices,
+                                  VkDevice device, VkPhysicalDevice physicalDevice, VkCommandPool commandPool,
                                   VkQueue graphicsQueue) {
     indexCount = static_cast<uint32_t>(indices.size());
 
@@ -116,8 +114,8 @@ void ModelGeometry::createBuffer(VkDevice device, VkPhysicalDevice physicalDevic
     vkBindBufferMemory(device, buffer, bufferMemory, 0);
 }
 
-void ModelGeometry::copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue,
-                               VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
+void ModelGeometry::copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue, VkBuffer srcBuffer,
+                               VkBuffer dstBuffer, VkDeviceSize size) {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -164,4 +162,4 @@ uint32_t ModelGeometry::findMemoryType(VkPhysicalDevice physicalDevice, uint32_t
     throw std::runtime_error("Failed to find suitable memory type");
 }
 
-} // namespace DownPour
+}  // namespace DownPour

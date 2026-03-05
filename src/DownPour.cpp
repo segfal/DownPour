@@ -1,6 +1,7 @@
 #include "DownPour.h"
 
 #include "logger/Logger.h"
+#include "renderer/TerrainGeometry.h"
 #include "vulkan/VulkanTypes.h"
 
 #include <algorithm>
@@ -32,7 +33,7 @@ void Application::initWindow() {
     // Setup mouse input
     glfwSetWindowUserPointer(window, this);
     glfwSetCursorPosCallback(window, mouseCallback);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);  // Hide and capture cursor
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);  
 }
 
 void Application::initVulkan() {
@@ -48,8 +49,12 @@ void Application::initVulkan() {
     swapChainManager.createFramebuffers(vulkanContext.getDevice(), depthImageView);
 
     createDescriptorSetLayout();
+    createMaterialDescriptorSetLayout();
     createGraphicsPipeline();
     createWorldPipeline();
+    createCarPipeline();
+    createTerrainPipeline();
+    createScreenRainPipeline();
     createCommandPool();
 
     // Initialize material manager
@@ -59,45 +64,33 @@ void Application::initVulkan() {
     createUniformBuffers();
     createDescriptorPool();
     createDescriptorSets();
+
+    // Initialize material manager descriptor support
+    materialManager->initDescriptorSupport(materialDescriptorSetLayout, descriptorPool, MAX_FRAMES_IN_FLIGHT);
+
     createCommandBuffers();
     loadRoadModel();
 
-    // Load and setup car model
+    // Create descriptor sets for materials loaded from road model
+    materialManager->createDescriptorSetsForExistingMaterials();
+    createTerrain();
+
+    // Initialize rain renderer
+    rainRenderer = new RainRenderer();
+    rainRenderer->init(vulkanContext.getDevice(), vulkanContext.getPhysicalDevice(),
+                       commandPool, vulkanContext.getGraphicsQueue(),
+                       swapChainManager.getRenderPass(), swapChainManager.getExtent(),
+                       descriptorSetLayout, MAX_FRAMES_IN_FLIGHT);
+
     loadCarModel();
-    createCarPipeline();
-    createCarTransparentPipeline();
-    createCarDescriptorSets();
-
-    // Initialize windshield surface
-    windshield.initialize(vulkanContext.getDevice(), vulkanContext.getPhysicalDevice(), commandPool,
-                          vulkanContext.getGraphicsQueue());
-    createWindshieldPipeline();
-
+    initCamera();
     createSyncObjects();
-
-    float aspect = static_cast<float>(swapChainManager.getExtent().width) /
-                   static_cast<float>(swapChainManager.getExtent().height);
-    // Initialize camera (will be updated by updateCamera based on camera mode)
-    camera = Camera({0.0f, 0.0f, 0.0f}, aspect);
-    // Set FOV (wider for cockpit, normal for external)
-    camera.setFOV(75.0f);
-    // Set far plane to 10km so we can see the entire 6.5km road
-    camera.setFarPlane(10000.0f);
-
-    // Set initial camera mode to Cockpit
-    camera.setMode(CameraMode::Cockpit);
-    camera.setCockpitOffset(cockpitOffset);
 
     lastFrameTime = glfwGetTime();
 }
 
-void Application::cleanup() {
-    // Clean up windshield resources
-    windshield.cleanup(vulkanContext.getDevice());
-    safeDestroy(windshieldPipeline, vkDestroyPipeline);
-    safeDestroy(windshieldPipelineLayout, vkDestroyPipelineLayout);
-    safeDestroy(windshieldDescriptorLayout, vkDestroyDescriptorSetLayout);
 
+void Application::cleanup() {
     safeDestroy(depthImageView, vkDestroyImageView);
     safeDestroy(depthImage, vkDestroyImage);
     if (depthImageMemory != VK_NULL_HANDLE) {
@@ -117,6 +110,7 @@ void Application::cleanup() {
 
     safeDestroy(descriptorPool, vkDestroyDescriptorPool);
     safeDestroy(descriptorSetLayout, vkDestroyDescriptorSetLayout);
+    safeDestroy(materialDescriptorSetLayout, vkDestroyDescriptorSetLayout);
 
     // Clean up material manager
     if (materialManager) {
@@ -126,20 +120,7 @@ void Application::cleanup() {
     }
 
     // Clear material ID mappings
-    carMaterialIds.clear();
     roadMaterialIds.clear();
-
-    // Clean up car resources
-    if (carModelPtr) {
-        carModelPtr->cleanup(vulkanContext.getDevice());
-        delete carModelPtr;
-        carModelPtr = nullptr;
-    }
-    safeDestroy(carPipeline, vkDestroyPipeline);
-    safeDestroy(carTransparentPipeline, vkDestroyPipeline);
-    safeDestroy(carPipelineLayout, vkDestroyPipelineLayout);
-    safeDestroy(carDescriptorSetLayout, vkDestroyDescriptorSetLayout);
-    safeDestroy(carDescriptorPool, vkDestroyDescriptorPool);
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroyBuffer(vulkanContext.getDevice(), uniformBuffers[i], nullptr);
@@ -150,14 +131,43 @@ void Application::cleanup() {
     safeDestroy(graphicsPipeline, vkDestroyPipeline);
     safeDestroy(pipelineLayout, vkDestroyPipelineLayout);
 
+    // Clean up car model (carModelPtr is owned by carAdapter)
+    if (carModelPtr) {
+        carModelPtr->cleanup(vulkanContext.getDevice());
+        carModelPtr = nullptr;
+    }
+    delete carAdapter;
+    carAdapter = nullptr;
+    carMaterialIds.clear();
+
     // Clean up road model BEFORE destroying device
     if (roadModelPtr) {
         roadModelPtr->cleanup(vulkanContext.getDevice());
         delete roadModelPtr;
         roadModelPtr = nullptr;
     }
+    safeDestroy(carPipeline, vkDestroyPipeline);
+    safeDestroy(carTransparentPipeline, vkDestroyPipeline);
     safeDestroy(worldPipeline, vkDestroyPipeline);
     safeDestroy(worldPipelineLayout, vkDestroyPipelineLayout);
+
+    // Clean up rain renderer
+    if (rainRenderer) {
+        rainRenderer->cleanup(vulkanContext.getDevice());
+        delete rainRenderer;
+        rainRenderer = nullptr;
+    }
+
+    // Clean up terrain
+    if (terrainGeometry) {
+        terrainGeometry->cleanup(vulkanContext.getDevice());
+        delete terrainGeometry;
+        terrainGeometry = nullptr;
+    }
+    safeDestroy(terrainPipeline, vkDestroyPipeline);
+    safeDestroy(terrainPipelineLayout, vkDestroyPipelineLayout);
+    safeDestroy(screenRainPipeline, vkDestroyPipeline);
+    safeDestroy(screenRainPipelineLayout, vkDestroyPipelineLayout);
 
     // VulkanContext handles cleanup of instance, device, surface
     vulkanContext.cleanup();
@@ -185,10 +195,46 @@ void Application::createUniformBuffers() {
 
 void Application::updateUniformBuffer(uint32_t currentImage) {
     CameraUBO ubo{};
-    ubo.view = camera.getViewMatrix();
-    ubo.proj = camera.getProjectionMatrix();
+    if (cameraEntity) {
+        ubo.view = cameraEntity->getViewMatrix();
+        ubo.proj = cameraEntity->getProjectionMatrix();
+    } else {
+        // Fallback if cameraEntity not initialized yet
+        float aspect = static_cast<float>(swapChainManager.getExtent().width) /
+                       static_cast<float>(swapChainManager.getExtent().height);
+        ubo.view = glm::mat4(1.0f);
+        ubo.proj = glm::perspective(glm::radians(75.0f), aspect, 0.1f, 10000.0f);
+    }
     ubo.proj[1][1] *= -1;  // GLM for OpenGL, flip Y for Vulkan
     ubo.viewProj = ubo.proj * ubo.view;
+
+    // Sun direction (normalized) and intensity
+    // PBR shaders divide diffuse by PI for energy conservation, so sun
+    // radiance must be > 1.0 to compensate. 5.0 gives a bright noon look.
+    glm::vec3 sunDir = glm::normalize(glm::vec3(0.4f, 0.8f, 0.3f));
+    ubo.sunDirection = glm::vec4(sunDir, 5.0f);  // w = HDR sun intensity (bright noon)
+
+    // Camera position
+    if (cameraEntity) {
+        Scene* scene = sceneManager.getActiveScene();
+        if (scene) {
+            NodeHandle cameraNodeHandle = cameraEntity->getNode("camera_root");
+            SceneNode* cameraNode = scene->getNode(cameraNodeHandle);
+            if (cameraNode) {
+                glm::vec3 camPos = glm::vec3(cameraNode->worldTransform[3]);  // Extract position from transform
+                ubo.cameraPosition = glm::vec4(camPos, static_cast<float>(glfwGetTime()));  // w = time
+            }
+        }
+    }
+
+    // Weather parameters for shaders
+    glm::vec3 wind = weatherSystem.getWind();
+    ubo.weatherParams = glm::vec4(
+        weatherSystem.getRainIntensity(),
+        weatherSystem.getWetness(),
+        wind.x,
+        wind.z
+    );
 
     memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 }
@@ -197,12 +243,14 @@ void Application::createGraphicsPipeline() {
     // Create pipeline layout
     pipelineLayout = PipelineFactory::createPipelineLayout(vulkanContext.getDevice(), {descriptorSetLayout});
 
-    // Create pipeline
+    // Create skybox pipeline (renders at depth=1.0, always behind everything)
     PipelineConfig config;
-    config.vertShader = "basic.vert.spv";
-    config.fragShader = "basic.frag.spv";
-    config.layout     = pipelineLayout;
-    config.cullMode   = VK_CULL_MODE_NONE;
+    config.vertShader        = "basic.vert.spv";
+    config.fragShader        = "basic.frag.spv";
+    config.layout            = pipelineLayout;
+    config.cullMode          = VK_CULL_MODE_NONE;
+    config.enableDepthWrite  = false;                     // Don't write depth
+    config.depthCompareOp    = VK_COMPARE_OP_LESS_OR_EQUAL;  // Allow skybox at depth=1.0
 
     graphicsPipeline = PipelineFactory::createPipeline(vulkanContext.getDevice(), config,
                                                        swapChainManager.getRenderPass(), swapChainManager.getExtent());
@@ -258,15 +306,22 @@ void Application::createSyncObjects() {
 }
 
 void Application::createDescriptorPool() {
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+    std::array<VkDescriptorPoolSize, 2> poolSizes{};
+
+    // Uniform buffer pool
+    poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+    // Combined image sampler pool for materials
+    poolSizes[1].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    // Car model has ~100 materials, each needs 3 samplers × 2 frames = 600+ descriptors
+    poolSizes[1].descriptorCount = 1000;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes    = &poolSize;
-    poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes    = poolSizes.data();
+    poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT + 500);  // Camera + materials
     if (vkCreateDescriptorPool(vulkanContext.getDevice(), &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
         throw std::runtime_error("Failed to create descriptor pool");
 }
@@ -309,7 +364,7 @@ void Application::createDescriptorSetLayout() {
     uboLayoutBinding.binding            = 0;
     uboLayoutBinding.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     uboLayoutBinding.descriptorCount    = 1;
-    uboLayoutBinding.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT;
+    uboLayoutBinding.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     uboLayoutBinding.pImmutableSamplers = nullptr;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
@@ -320,6 +375,41 @@ void Application::createDescriptorSetLayout() {
     if (vkCreateDescriptorSetLayout(vulkanContext.getDevice(), &layoutInfo, nullptr, &descriptorSetLayout) !=
         VK_SUCCESS)
         throw std::runtime_error("Failed to create descriptor set layout!");
+}
+
+void Application::createMaterialDescriptorSetLayout() {
+    // 3 bindings: baseColor, normalMap, metallicRoughness
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
+
+    // Binding 0: Base color sampler
+    bindings[0].binding            = 0;
+    bindings[0].descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[0].descriptorCount    = 1;
+    bindings[0].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[0].pImmutableSamplers = nullptr;
+
+    // Binding 1: Normal map sampler
+    bindings[1].binding            = 1;
+    bindings[1].descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].descriptorCount    = 1;
+    bindings[1].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].pImmutableSamplers = nullptr;
+
+    // Binding 2: Metallic-roughness sampler
+    bindings[2].binding            = 2;
+    bindings[2].descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].descriptorCount    = 1;
+    bindings[2].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[2].pImmutableSamplers = nullptr;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings    = bindings.data();
+
+    if (vkCreateDescriptorSetLayout(vulkanContext.getDevice(), &layoutInfo, nullptr, &materialDescriptorSetLayout) !=
+        VK_SUCCESS)
+        throw std::runtime_error("Failed to create material descriptor set layout!");
 }
 
 void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, uint32_t frameIndex) {
@@ -340,132 +430,154 @@ void Application::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, 
 
     vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
 
-    // 1. Draw skybox
+    // Push constant struct: mat4 model (64 bytes) + float alphaMultiplier (4 bytes) = 68 bytes
+    struct PushData {
+        glm::mat4 model;
+        float     alphaMultiplier;
+    };
+
+    // 1. Draw road FIRST (writes depth)
+
+    if (roadModelPtr && roadModelPtr->getIndexCount() > 0 && !roadMaterialIds.empty()) {
+        VkBuffer     roadVertexBuffers[] = {roadModelPtr->getVertexBuffer()};
+        VkDeviceSize roadOffsets[]       = {0};
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipelineLayout, 0, 1,
+                                &descriptorSets[frameIndex], 0, nullptr);
+
+        PushData roadPush{roadModelPtr->getModelMatrix(), 1.0f};
+        vkCmdPushConstants(cmd, worldPipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(PushData), &roadPush);
+
+        VkDescriptorSet roadMaterialDescSet = materialManager->getDescriptorSet(roadMaterialIds[0], frameIndex);
+        if (roadMaterialDescSet != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipelineLayout, 1, 1,
+                                    &roadMaterialDescSet, 0, nullptr);
+        }
+
+        vkCmdBindVertexBuffers(cmd, 0, 1, roadVertexBuffers, roadOffsets);
+        vkCmdBindIndexBuffer(cmd, roadModelPtr->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, roadModelPtr->getIndexCount(), 1, 0, 0, 0);
+    }
+
+    // 1.5. Draw car — two passes: opaque first, then transparent (glass/mirrors)
+    if (carModelPtr && carModelPtr->getIndexCount() > 0) {
+        VkBuffer     carVertexBuffers[] = {carModelPtr->getVertexBuffer()};
+        VkDeviceSize carOffsets[]       = {0};
+
+        vkCmdBindVertexBuffers(cmd, 0, 1, carVertexBuffers, carOffsets);
+        vkCmdBindIndexBuffer(cmd, carModelPtr->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+        Scene* scene = sceneManager.getActiveScene();
+        if (scene) {
+            auto batches = scene->getRenderBatches();
+
+            // Pass 1: Opaque car parts (depth write ON, no blending)
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipelineLayout, 0, 1,
+                                    &descriptorSets[frameIndex], 0, nullptr);
+
+            for (const auto& batch : batches) {
+                if (batch.model != carModelPtr) continue;
+                for (const SceneNode* node : batch.nodes) {
+                    if (!node->renderData || !node->renderData->isVisible) continue;
+                    if (node->renderData->indexCount == 0) continue;
+                    if (node->renderData->isTransparent) continue;  // Skip transparent in pass 1
+
+                    PushData push{node->worldTransform, 1.0f};
+                    vkCmdPushConstants(cmd, worldPipelineLayout,
+                                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                                       0, sizeof(PushData), &push);
+
+                    VkDescriptorSet matDescSet = materialManager->getDescriptorSet(
+                        node->renderData->materialId, frameIndex);
+                    if (matDescSet != VK_NULL_HANDLE) {
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipelineLayout, 1, 1,
+                                                &matDescSet, 0, nullptr);
+                    }
+
+                    vkCmdDrawIndexed(cmd, node->renderData->indexCount, 1,
+                                     node->renderData->indexStart, 0, 0);
+                }
+            }
+
+            // Pass 2: Transparent car parts (blending ON, depth write OFF)
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carTransparentPipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipelineLayout, 0, 1,
+                                    &descriptorSets[frameIndex], 0, nullptr);
+
+            for (const auto& batch : batches) {
+                if (batch.model != carModelPtr) continue;
+                for (const SceneNode* node : batch.nodes) {
+                    if (!node->renderData || !node->renderData->isVisible) continue;
+                    if (node->renderData->indexCount == 0) continue;
+                    if (!node->renderData->isTransparent) continue;  // Only transparent in pass 2
+
+                    // Get material alpha from MaterialManager
+                    float alpha = materialManager->getProperties(node->renderData->materialId).alphaValue;
+
+                    PushData push{node->worldTransform, alpha};
+                    vkCmdPushConstants(cmd, worldPipelineLayout,
+                                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                                       0, sizeof(PushData), &push);
+
+                    VkDescriptorSet matDescSet = materialManager->getDescriptorSet(
+                        node->renderData->materialId, frameIndex);
+                    if (matDescSet != VK_NULL_HANDLE) {
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipelineLayout, 1, 1,
+                                                &matDescSet, 0, nullptr);
+                    }
+
+                    vkCmdDrawIndexed(cmd, node->renderData->indexCount, 1,
+                                     node->renderData->indexStart, 0, 0);
+                }
+            }
+        }
+    }
+
+    // 2. Draw terrain (grass strips alongside road)
+    if (terrainGeometry && terrainGeometry->getIndexCount() > 0) {
+        VkBuffer     terrainVertexBuffers[] = {terrainGeometry->getVertexBuffer()};
+        VkDeviceSize terrainOffsets[]       = {0};
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipeline);
+
+        // Bind camera descriptor set (set 0)
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipelineLayout, 0, 1,
+                                &descriptorSets[frameIndex], 0, nullptr);
+
+        // Bind grass material descriptor set (set 1)
+        VkDescriptorSet grassMaterialDescSet = materialManager->getDescriptorSet(grassMaterialId, frameIndex);
+        if (grassMaterialDescSet != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, terrainPipelineLayout, 1, 1,
+                                    &grassMaterialDescSet, 0, nullptr);
+        }
+
+        vkCmdBindVertexBuffers(cmd, 0, 1, terrainVertexBuffers, terrainOffsets);
+        vkCmdBindIndexBuffer(cmd, terrainGeometry->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, terrainGeometry->getIndexCount(), 1, 0, 0, 0);
+    }
+
+    // 3. Draw rain particles (transparent, after opaques, before skybox)
+    if (rainRenderer && rainRenderer->getActiveCount() > 0) {
+        rainRenderer->draw(cmd, frameIndex, descriptorSets[frameIndex]);
+    }
+
+    // 4. Draw skybox LAST (fills remaining pixels at depth=1.0)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[frameIndex], 0,
                             nullptr);
     vkCmdDraw(cmd, 36, 1, 0, 0);
 
-    // ========================================================================
-    // 2. Draw Road (glTF Model with PBR Materials)
-    // ========================================================================
-    // The road model (~50km long) is rendered with asphalt textures using
-    // the same PBR pipeline as the car. This ensures consistent material
-    // rendering and lighting across the scene.
-    // Rendering Order: Skybox → Road (opaque) → Car (opaque) → Car (transparent)
-    if (roadModelPtr->getIndexCount() > 0) {
-        const auto&  roadMaterials       = roadModelPtr->getMaterials();
-        VkBuffer     roadVertexBuffers[] = {roadModelPtr->getVertexBuffer()};
-        VkDeviceSize roadOffsets[]       = {0};
-
-        if (!roadMaterials.empty()) {
-            // Road has PBR materials - use car pipeline (car.vert/frag shaders)
-            // Materials include: base color (asphalt_01_diff_2k.jpg), roughness map
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipeline);
-
-            // Push road model matrix (identity at ground level Y=0)
-            glm::mat4 roadMatrix = roadModelPtr->getModelMatrix();
-            vkCmdPushConstants(cmd, carPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &roadMatrix);
-
-            // Bind road geometry buffers
-            vkCmdBindVertexBuffers(cmd, 0, 1, roadVertexBuffers, roadOffsets);
-            vkCmdBindIndexBuffer(cmd, roadModelPtr->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
-
-            // Render each material primitive (typically 1 material for roads)
-            for (size_t i = 0; i < roadMaterials.size(); i++) {
-                const auto& material = roadMaterials[i];
-
-                // Get GPU material resources (textures + descriptor set)
-                uint32_t        gpuId         = roadMaterialIds[i];
-                VkDescriptorSet matDescriptor = materialManager->getDescriptorSet(gpuId, frameIndex);
-
-                // Bind descriptor sets: [0] = Camera UBO, [1] = Material textures
-                std::vector<VkDescriptorSet> sets = {descriptorSets[frameIndex], matDescriptor};
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipelineLayout, 0,
-                                        static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
-
-                // Draw this material's index range
-                vkCmdDrawIndexed(cmd, material.indexCount, 1, material.indexStart, 0, 0);
-            }
-        } else {
-            // Fallback: Road has no materials - use simple world pipeline (untextured)
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipeline);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldPipelineLayout, 0, 1,
-                                    &descriptorSets[frameIndex], 0, nullptr);
-            vkCmdBindVertexBuffers(cmd, 0, 1, roadVertexBuffers, roadOffsets);
-            vkCmdBindIndexBuffer(cmd, roadModelPtr->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
-            vkCmdDrawIndexed(cmd, roadModelPtr->getIndexCount(), 1, 0, 0, 0);
-        }
+    // 5. Screen-space rain drops on camera (fullscreen overlay)
+    if (weatherSystem.getRainIntensity() > 0.01f) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, screenRainPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, screenRainPipelineLayout, 0, 1,
+                                &descriptorSets[frameIndex], 0, nullptr);
+        vkCmdDraw(cmd, 3, 1, 0, 0);  // Fullscreen triangle
     }
-
-    // 3. Draw car using scene graph (hierarchical rendering)
-    Scene* activeScene = sceneManager.getActiveScene();
-
-    if (activeScene) {
-        // Update all transforms in the scene
-        activeScene->updateTransforms();
-
-        // Get render batches (grouped by model and transparency)
-        auto batches = activeScene->getRenderBatches();
-
-        // DEBUG: Track rendering statistics
-        static bool debugPrinted        = false;
-        int         totalNodes          = 0;
-        int         skippedNoDescriptor = 0;
-        int         drawnNodes          = 0;
-
-        for (const auto& batch : batches) {
-            if (!batch.model || batch.nodes.empty())
-                continue;
-
-            // Bind appropriate pipeline based on transparency
-            VkPipeline pipeline = batch.isTransparent ? carTransparentPipeline : carPipeline;
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-            static bool loggedTransparency = false;
-            if (!loggedTransparency && batch.isTransparent) {
-                loggedTransparency = true;
-            }
-
-            // Bind model's vertex and index buffers ONCE per batch
-            VkBuffer     vertexBuffers[] = {batch.model->getVertexBuffer()};
-            VkDeviceSize offsets[]       = {0};
-            vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-            vkCmdBindIndexBuffer(cmd, batch.model->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
-
-            // Draw each node instance with its own world transform
-            for (SceneNode* node : batch.nodes) {
-                totalNodes++;
-                if (!node || !node->renderData || !node->renderData->isVisible)
-                    continue;
-
-                // Push THIS NODE's world transform (includes parent transforms)
-                vkCmdPushConstants(cmd, carPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4),
-                                   &node->worldTransform);
-
-                // Bind material descriptor set
-                uint32_t        matId         = node->renderData->materialId;
-                VkDescriptorSet matDescriptor = materialManager->getDescriptorSet(matId, frameIndex);
-
-                // Skip nodes with no descriptor set (materials without textures)
-                if (matDescriptor == VK_NULL_HANDLE) {
-                    skippedNoDescriptor++;
-                    continue;
-                }
-
-                // Bind descriptor sets: [0] = Camera UBO, [1] = Material textures
-                std::vector<VkDescriptorSet> sets = {descriptorSets[frameIndex], matDescriptor};
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, carPipelineLayout, 0,
-                                        static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
-
-                // Draw this node's geometry
-                vkCmdDrawIndexed(cmd, node->renderData->indexCount, 1, node->renderData->indexStart, 0, 0);
-                drawnNodes++;
-            }
-        }
-    }
-
-    // 4. Draw debug markers (if enabled)
 
     vkCmdEndRenderPass(cmd);
 
@@ -523,135 +635,73 @@ void Application::drawFrame() {
 
 void Application::mainLoop() {
     while (!glfwWindowShouldClose(window)) {
+        glfwPollEvents();
+
         float currentTime = glfwGetTime();
         float deltaTime   = currentTime - lastFrameTime;
         lastFrameTime     = currentTime;
 
         // Toggle cursor capture with ESC key
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        static bool escPressed = false;
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS && !escPressed) {
             cursorCaptured = !cursorCaptured;
+            glfwSetInputMode(window, GLFW_CURSOR,
+                cursorCaptured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
             if (cursorCaptured) {
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-                firstMouse = true;  // Reset to avoid camera jump
-            } else {
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                firstMouse = true;
             }
-            // Small delay to prevent multiple toggles
-            while (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-                glfwPollEvents();
-            }
+            escPressed = true;
+        } else if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_RELEASE) {
+            escPressed = false;
         }
 
-        // Toggle weather with R key
-        if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-            weatherSystem.toggleWeather();
-            // Small delay to prevent multiple toggles
-            while (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-                glfwPollEvents();
-            }
-        }
-
-        // Update car physics
-        updateCarPhysics(deltaTime);
-
-        // Update camera based on car position and rotation
-        if (camera.getMode() == CameraMode::Cockpit) {
-            updateCameraForCockpit();
-        }
-        camera.updateCameraMode(deltaTime);
-
-        // Update weather system
-        weatherSystem.update(deltaTime);
-
-        // Update windshield with rain data
-        windshield.update(deltaTime, weatherSystem.getActiveDrops());
-
-        // Handle wiper control with I key
-        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) {
-            windshield.setWiperActive(true);
-        } else {
-            windshield.setWiperActive(false);
-        }
-
-        // Toggle debug visualization with V key
-        if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS) {
-            debugVisualizationEnabled = !debugVisualizationEnabled;
-            // Small delay to prevent multiple toggles
-            while (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS) {
-                glfwPollEvents();
-            }
-        }
-
-        // Cycle camera mode with C key
-        if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
-            camera.cycleMode();
-            // Small delay to prevent multiple toggles
-            while (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
-                glfwPollEvents();
-            }
-        }
-
-        // Adjust cockpit offset with numpad keys (fine control)
-        const float adjustStep    = 0.1f;  // 10cm increments
-        bool        offsetChanged = false;
-
-        // X axis (left/right) - Numpad 4/6
-        if (glfwGetKey(window, GLFW_KEY_KP_4) == GLFW_PRESS) {
-            cockpitOffset.x -= adjustStep;
-            offsetChanged = true;
-        }
-        if (glfwGetKey(window, GLFW_KEY_KP_6) == GLFW_PRESS) {
-            cockpitOffset.x += adjustStep;
-            offsetChanged = true;
-        }
-
-        // Y axis (forward/back in model space) - Numpad 8/2
-        if (glfwGetKey(window, GLFW_KEY_KP_8) == GLFW_PRESS) {
-            cockpitOffset.y += adjustStep;
-            offsetChanged = true;
-        }
-        if (glfwGetKey(window, GLFW_KEY_KP_2) == GLFW_PRESS) {
-            cockpitOffset.y -= adjustStep;
-            offsetChanged = true;
-        }
-
-        // Z axis (up/down in model space) - Numpad +/-
-        if (glfwGetKey(window, GLFW_KEY_KP_ADD) == GLFW_PRESS) {
-            cockpitOffset.z += adjustStep;
-            offsetChanged = true;
-        }
-        if (glfwGetKey(window, GLFW_KEY_KP_SUBTRACT) == GLFW_PRESS) {
-            cockpitOffset.z -= adjustStep;
-            offsetChanged = true;
-        }
-
-        // Print updated offset when changed
-        if (offsetChanged) {
-            camera.setCockpitOffset(cockpitOffset);
+        // Toggle rain with R key (Sunny → Low → Heavy → Severe → Sunny)
+        static bool rPressed = false;
+        if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS && !rPressed) {
+            weatherSystem.cycleWeather();
             Log logger;
-            logger.log("info", "Cockpit Offset: (" + std::to_string(cockpitOffset.x) + ", " +
-                                   std::to_string(cockpitOffset.y) + ", " + std::to_string(cockpitOffset.z) + ")");
+            logger.log("info", std::string("Weather: ") + weatherSystem.getStateName());
+            rPressed = true;
+        } else if (glfwGetKey(window, GLFW_KEY_R) == GLFW_RELEASE) {
+            rPressed = false;
         }
 
-        // Log camera and car position on L key press
-        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) {
-            glm::vec3 camPos = camera.getPosition();
-            Log       logger;
-            logger.log("position", "Camera: (" + std::to_string(camPos.x) + ", " + std::to_string(camPos.y) + ", " +
-                                       std::to_string(camPos.z) + ") | Car: (" + std::to_string(carPosition.x) + ", " +
-                                       std::to_string(carPosition.y) + ", " + std::to_string(carPosition.z) +
-                                       ") | Angle: " + std::to_string(carRotation));
-            // Small delay to prevent multiple logs
-            while (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) {
-                glfwPollEvents();
+        // Car / camera input
+        if (carEntity && cursorCaptured) {
+            carEntity->update(deltaTime, window);
+        } else if (cameraEntity && cursorCaptured) {
+            cameraEntity->processInput(window, deltaTime);
+        }
+
+        // Update weather system (particle physics)
+        glm::vec3 camPos(0.0f);
+        if (cameraEntity) {
+            Scene* scene = sceneManager.getActiveScene();
+            if (scene) {
+                NodeHandle cameraNodeHandle = cameraEntity->getNode("camera_root");
+                SceneNode* cameraNode = scene->getNode(cameraNodeHandle);
+                if (cameraNode) {
+                    camPos = glm::vec3(cameraNode->worldTransform[3]);
+                }
             }
         }
+        weatherSystem.update(deltaTime, camPos);
 
-        // Update debug markers every frame (car position changes)
+        // Update rain GPU instances
+        if (rainRenderer) {
+            rainRenderer->updateInstances(weatherSystem.getDrops(), currentFrame);
+        }
 
-        glfwPollEvents();
+        // Update scene transforms
+        Scene* activeScene = sceneManager.getActiveScene();
+        if (activeScene) {
+            activeScene->updateTransforms();
+        }
+
+        updateUniformBuffer(currentFrame);
         drawFrame();
     }
+
     vkDeviceWaitIdle(vulkanContext.getDevice());
 }
 
@@ -675,7 +725,9 @@ void Application::mouseCallback(GLFWwindow* window, double xpos, double ypos) {
     app->lastX = xpos;
     app->lastY = ypos;
 
-    app->camera.processMouseMovement(xoffset, yoffset);
+    if (app->cameraEntity) {
+        app->cameraEntity->processMouseMovement(xoffset, yoffset);
+    }
 }
 
 void Application::createDepthResources() {
@@ -703,8 +755,16 @@ void Application::createDepthResources() {
 }
 
 void Application::createWorldPipeline() {
-    // Create pipeline layout
-    worldPipelineLayout = PipelineFactory::createPipelineLayout(vulkanContext.getDevice(), {descriptorSetLayout});
+    // Create pipeline layout with camera UBO (set 0), material textures (set 1), and push constants
+    // Push constants: mat4 model (64 bytes) + float alphaMultiplier (4 bytes) = 68 bytes
+    // Both vertex and fragment stages can access the full range
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushConstantRange.offset     = 0;
+    pushConstantRange.size       = sizeof(glm::mat4) + sizeof(float);  // 68 bytes
+
+    worldPipelineLayout = PipelineFactory::createPipelineLayoutWithPushConstants(
+        vulkanContext.getDevice(), {descriptorSetLayout, materialDescriptorSetLayout}, {pushConstantRange});
 
     // Create pipeline
     PipelineConfig config;
@@ -717,185 +777,29 @@ void Application::createWorldPipeline() {
                                                     swapChainManager.getExtent());
 }
 
-void Application::loadCarModel() {
-    // NEW: Use ModelAdapter for data-driven loading
-    carAdapter = new ModelAdapter();
-    if (!carAdapter->load("assets/models/bmw/bmw.gltf", vulkanContext.getDevice(), vulkanContext.getPhysicalDevice(),
-                          commandPool, vulkanContext.getGraphicsQueue())) {
-        throw std::runtime_error("Failed to load car model via adapter");
-    }
-    carModelPtr = carAdapter->getModel();
+void Application::createCarPipeline() {
+    // Car opaque pipeline: shares worldPipelineLayout, car-specific PBR shaders
+    PipelineConfig config;
+    config.vertShader = "car.vert.spv";
+    config.fragShader = "car.frag.spv";
+    config.layout     = worldPipelineLayout;
+    config.cullMode   = VK_CULL_MODE_NONE;
 
-    // Get hierarchy-aware dimensions for accurate scaling
-    glm::vec3 hMin, hMax;
-    carModelPtr->getHierarchyBounds(hMin, hMax);
-    glm::vec3 hDimensions = hMax - hMin;
+    carPipeline = PipelineFactory::createPipeline(vulkanContext.getDevice(), config, swapChainManager.getRenderPass(),
+                                                  swapChainManager.getExtent());
 
-    // Use target length from adapter
-    float targetLength = carAdapter->getTargetLength();
-    if (targetLength <= 0.0f) {
-        targetLength = 4.7f;  // Fallback
-    }
+    // Car transparent pipeline: same shaders but with alpha blending, no depth write
+    PipelineConfig transparentConfig;
+    transparentConfig.vertShader       = "car.vert.spv";
+    transparentConfig.fragShader       = "car.frag.spv";
+    transparentConfig.layout           = worldPipelineLayout;
+    transparentConfig.cullMode         = VK_CULL_MODE_NONE;
+    transparentConfig.enableBlending   = true;
+    transparentConfig.enableDepthWrite = false;
 
-    // Calculate scale factor based on length (Z dimension)
-    carScaleFactor = targetLength / hDimensions.z;
-
-    // Cache the bottom offset (lowest point in model space * scale)
-    carBottomOffset = hMin.y * carScaleFactor;
-
-    // Use cockpit offset from adapter metadata if available
-    const auto& camCfg = carAdapter->getCameraConfig();
-    if (camCfg.hasData) {
-        cockpitOffset = camCfg.cockpit.position;
-    } else {
-        // Fallback to a better starting cockpit position if not in JSON
-        float suggestedX = 0.0f;                            // Center
-        float suggestedY = hMin.y + hDimensions.y * 0.4f;   // 40% from front
-        float suggestedZ = hMin.z + hDimensions.z * 0.75f;  // 75% of height
-        cockpitOffset    = glm::vec3(suggestedX, suggestedY, suggestedZ);
-    }
-
-    // Load GPU resources for car materials
-    const auto& carMaterials = carModelPtr->getMaterials();
-    for (size_t i = 0; i < carMaterials.size(); i++) {
-        uint32_t gpuId    = materialManager->createMaterial(carMaterials[i]);
-        carMaterialIds[i] = gpuId;
-    }
-
-    // NEW: Build scene from hierarchy
-    Scene* drivingScene = sceneManager.createScene("driving");
-
-    std::vector<NodeHandle> carRootNodes = SceneBuilder::buildFromModel(drivingScene, carModelPtr, carMaterialIds);
-
-    // NEW: Create entity for player car with a WRAPPER ROOT
-    // This ensures all glTF roots get the same transform when we move/scale the car
-    playerCar = sceneManager.createEntity<CarEntity>("player_car", "driving");
-
-    // Apply config from CarEntity
-    auto& carConfig  = playerCar->getConfig();
-    carConfig.length = targetLength;
-
-    // Create a wrapper root node that will be the entity's root
-    NodeHandle carWrapperRoot = drivingScene->createNode("car_wrapper_root");
-    playerCar->addNode(carWrapperRoot);  // This becomes the entity root
-
-    // Reparent all glTF root nodes under the wrapper
-    for (size_t i = 0; i < carRootNodes.size(); i++) {
-        drivingScene->setParent(carRootNodes[i], carWrapperRoot);
-        playerCar->addNode(carRootNodes[i], "gltf_root_" + std::to_string(i));
-    }
-
-    // NEW: Find and tag specific parts for animation using ADAPTER ROLES
-
-    auto tagRole = [&](const std::string& role) {
-        std::string nodeName = carAdapter->getNodeNameForRole(role);
-        if (!nodeName.empty()) {
-            if (auto node = drivingScene->findNode(nodeName); node.isValid()) {
-                playerCar->addNode(node, role);
-                return true;
-            }
-        }
-        return false;
-    };
-
-    tagRole(CarEntity::ROLE_WHEEL_FL);
-    tagRole(CarEntity::ROLE_WHEEL_FR);
-    tagRole(CarEntity::ROLE_WHEEL_RL);
-    tagRole(CarEntity::ROLE_WHEEL_RR);
-
-    if (tagRole(CarEntity::ROLE_STEERING_WHEEL_FRONT)) {
-        carParts.hasSteeringWheelFront = true;
-    }
-
-    if (tagRole(CarEntity::ROLE_STEERING_WHEEL_BACK)) {
-        carParts.hasSteeringWheelBack = true;  
-    }
-
-    if (tagRole(CarEntity::ROLE_WIPER_LEFT)) {
-        carParts.hasWipers = true;
-    }
-    tagRole(CarEntity::ROLE_WIPER_RIGHT);
-
-    // Tag other roles
-    tagRole(CarEntity::ROLE_HOOD);
-    tagRole(CarEntity::ROLE_DOOR_L);
-    tagRole(CarEntity::ROLE_DOOR_R);
-    tagRole(CarEntity::ROLE_HEADLIGHTS);
-    tagRole(CarEntity::ROLE_TAILLIGHTS);
-
-    // Apply physics configuration from adapter if available
-    const auto& phys = carAdapter->getPhysicsConfig();
-    if (phys.wheelBase > 0.0f) {
-        auto& carConfig           = playerCar->getConfig();
-        carConfig.wheelBase       = phys.wheelBase;
-        carConfig.trackWidth      = phys.trackWidth;
-        carConfig.wheelRadius     = phys.wheelRadius;
-        carConfig.maxSteerAngle   = phys.maxSteerAngle;
-        carConfig.maxAcceleration = phys.maxAcceleration;
-        carConfig.maxBraking      = phys.maxBraking;
-
-        carConfig.mass              = phys.mass;
-        carConfig.dragCoefficient   = phys.dragCoefficient;
-        carConfig.rollingResistance = phys.rollingResistance;
-    }
-
-    // Apply spawn configuration
-    const auto& spawn = carAdapter->getSpawnConfig();
-    if (spawn.hasData) {
-        carPosition = glm::vec3(spawn.position.x, spawn.position.y, spawn.position.z);
-        // Map Y rotation (assuming Y-up world)
-        carRotation = spawn.rotation.y;
-    }
-
-    // Apply debug configuration
-    const auto& dbg = carAdapter->getDebugConfig();
-    if (dbg.hasData) {
-        // Enable debug visualization if any specialized debug view is requested
-        if (dbg.showColliders || dbg.showSkeleton || dbg.showVelocityVector) {
-            debugVisualizationEnabled = true;
-        }
-        // Force simple camera target viz if requested
-        if (dbg.showCameraTarget) {
-            // This could be mapped to a specific flag if one existed,
-            // for now we assume debugVisualizationEnabled covers it.
-            debugVisualizationEnabled = true;
-        }
-    }
-
-    // Create camera entity and attach to car
-    cameraEntity = sceneManager.createEntity<CameraEntity>("cockpit_camera", "driving");
-
-    // Configure camera from JSON metadata
-    CameraEntity::CameraConfig camConfig;
-
-    // Use camera configuration from JSON if available
-    const auto& setupCamCfg = carAdapter->getCameraConfig();
-    if (setupCamCfg.hasData) {
-        const auto& cockpit   = setupCamCfg.cockpit;
-        camConfig.localOffset = cockpit.position;
-        if (cockpit.useQuaternion) {
-            camConfig.localRotation = cockpit.rotation;
-        } else {
-            camConfig.localRotation = glm::quat(glm::radians(cockpit.eulerRotation));
-        }
-        camConfig.fov       = cockpit.fov;
-        camConfig.nearPlane = cockpit.nearPlane;
-        camConfig.farPlane  = cockpit.farPlane;
-    } else {
-        // Fallback to defaults
-        camConfig.localOffset   = cockpitOffset;
-        camConfig.localRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-        camConfig.fov           = 75.0f;
-        camConfig.nearPlane     = 0.1f;
-        camConfig.farPlane      = 10000.0f;
-    }
-
-    cameraEntity->setConfig(camConfig);
-
-    // Attach camera to car
-    cameraEntity->attachToParent(playerCar);
-
-    sceneManager.setActiveScene("driving");
+    carTransparentPipeline = PipelineFactory::createPipeline(vulkanContext.getDevice(), transparentConfig,
+                                                              swapChainManager.getRenderPass(),
+                                                              swapChainManager.getExtent());
 }
 
 void Application::loadRoadModel() {
@@ -906,17 +810,20 @@ void Application::loadRoadModel() {
     }
     roadModelPtr = roadAdapter->getModel();
 
-    // Log road model statistics
-
     glm::vec3 minBounds = roadModelPtr->getMinBounds();
     glm::vec3 maxBounds = roadModelPtr->getMaxBounds();
 
-    // Position road at ground level (Y=0)
+    Log roadLog;
+    roadLog.log("info", "Road bounds min: (" + std::to_string(minBounds.x) + ", " +
+                std::to_string(minBounds.y) + ", " + std::to_string(minBounds.z) + ")");
+    roadLog.log("info", "Road bounds max: (" + std::to_string(maxBounds.x) + ", " +
+                std::to_string(maxBounds.y) + ", " + std::to_string(maxBounds.z) + ")w");
+    roadLog.log("info", "Road vertices: " + std::to_string(roadModelPtr->getIndexCount()) + " indices");
+
+    // Position road at ground level (Y=0) and scale up environment
     glm::mat4 roadTransform = glm::mat4(1.0f);
     roadTransform           = glm::translate(roadTransform, glm::vec3(0.0f, 0.0f, 0.0f));
-
-    // May need scaling depending on road.glb dimensions
-    // For now, assume road.glb is already at correct scale
+    roadTransform           = glm::scale(roadTransform, glm::vec3(3000.0f, 1.0f, 1000.0f)); // 3x wider in X, Y=1 to keep flat
     roadModelPtr->setModelMatrix(roadTransform);
 
     // Load GPU resources for road materials
@@ -926,286 +833,193 @@ void Application::loadRoadModel() {
         roadMaterialIds[i] = gpuId;
     }
 
-    // Create RoadEntity
-    // Note: We don't store a pointer in Application class yet, but it's managed by SceneManager
-    // We assume 'driving' scene exists since loadCarModel usually runs first or around same time
-    if (sceneManager.getScene("driving")) {
-        RoadEntity* roadEntity = sceneManager.createEntity<RoadEntity>("road", "driving");
-        // We could attach the road model nodes here if we had them as SceneNodes
-        // For now, the road is drawn via legacy loop in drawFrame, but we have the Entity for logic
+    // Create RoadEntity in main scene
+    if (sceneManager.getScene("main")) {
+        RoadEntity* roadEntity = sceneManager.createEntity<RoadEntity>("road", "main");
+        // Road is drawn via legacy loop in recordCommandBuffer
     }
 }
 
-void Application::createCarPipeline() {
-    // Create descriptor set layout for texture
-    VkDescriptorSetLayoutBinding samplerLayoutBinding{};
-    samplerLayoutBinding.binding         = 0;
-    samplerLayoutBinding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    samplerLayoutBinding.descriptorCount = 1;
-    samplerLayoutBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 1;
-    layoutInfo.pBindings    = &samplerLayoutBinding;
-
-    if (vkCreateDescriptorSetLayout(vulkanContext.getDevice(), &layoutInfo, nullptr, &carDescriptorSetLayout) !=
-        VK_SUCCESS) {
-        throw std::runtime_error("Failed to create car descriptor set layout");
-    }
-
-    // Push constants for model matrix
-    VkPushConstantRange pushConstantRange{};
-    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    pushConstantRange.offset     = 0;
-    pushConstantRange.size       = sizeof(glm::mat4);
-
-    // Pipeline layout with both descriptor sets
-    std::vector<VkDescriptorSetLayout> layouts = {descriptorSetLayout, carDescriptorSetLayout};
-
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount         = static_cast<uint32_t>(layouts.size());
-    pipelineLayoutInfo.pSetLayouts            = layouts.data();
-    pipelineLayoutInfo.pushConstantRangeCount = 1;
-    pipelineLayoutInfo.pPushConstantRanges    = &pushConstantRange;
-
-    if (vkCreatePipelineLayout(vulkanContext.getDevice(), &pipelineLayoutInfo, nullptr, &carPipelineLayout) !=
-        VK_SUCCESS) {
-        throw std::runtime_error("Failed to create car pipeline layout");
-    }
-
-    PipelineConfig config;
-    config.vertShader = "car.vert.spv";
-    config.fragShader = "car.frag.spv";
-    config.layout     = carPipelineLayout;
-    config.cullMode   = VK_CULL_MODE_NONE;
-
-    carPipeline = PipelineFactory::createPipeline(vulkanContext.getDevice(), config, swapChainManager.getRenderPass(),
-                                                  swapChainManager.getExtent());
-}
-
-void Application::createCarTransparentPipeline() {
-    PipelineConfig config;
-    config.vertShader       = "car.vert.spv";
-    config.fragShader       = "car.frag.spv";
-    config.layout           = carPipelineLayout;  // Reuse existing layout
-    config.cullMode         = VK_CULL_MODE_NONE;
-    config.enableBlending   = true;
-    config.enableDepthWrite = false;
-
-    carTransparentPipeline = PipelineFactory::createPipeline(
-        vulkanContext.getDevice(), config, swapChainManager.getRenderPass(), swapChainManager.getExtent());
-}
-
-void Application::createCarDescriptorSets() {
-    const auto& materials = carModelPtr->getMaterials();
-    if (materials.empty()) {
+void Application::loadCarModel() {
+    carAdapter = new ModelAdapter();
+    if (!carAdapter->load("assets/models/bmw_suv.glb", vulkanContext.getDevice(), vulkanContext.getPhysicalDevice(),
+                           commandPool, vulkanContext.getGraphicsQueue())) {
+        Log logger;
+        logger.log("warning", "Failed to load car model - continuing without car");
+        delete carAdapter;
+        carAdapter = nullptr;
         return;
     }
+    carModelPtr = carAdapter->getModel();
 
-    // Create descriptor pool for ALL materials (road + car) * frames
-    // We need to account for materials already created (road = 1) + car materials
-    uint32_t totalMaterials = 1 + static_cast<uint32_t>(materials.size());  // road + car
-    totalMaterials += 50;                                                   // Add buffer for safety
+    Log logger;
+    glm::vec3 minBounds = carModelPtr->getMinBounds();
+    glm::vec3 maxBounds = carModelPtr->getMaxBounds();
+    logger.log("info", "Car bounds min: (" + std::to_string(minBounds.x) + ", " +
+                std::to_string(minBounds.y) + ", " + std::to_string(minBounds.z) + ")");
+    logger.log("info", "Car bounds max: (" + std::to_string(maxBounds.x) + ", " +
+                std::to_string(maxBounds.y) + ", " + std::to_string(maxBounds.z) + ")");
 
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = totalMaterials * MAX_FRAMES_IN_FLIGHT;
+    // Set car model matrix (identity for now, positioned via scene node)
+    carModelPtr->setModelMatrix(glm::mat4(1.0f));
 
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes    = &poolSize;
-    poolInfo.maxSets       = totalMaterials * MAX_FRAMES_IN_FLIGHT;
-
-    if (vkCreateDescriptorPool(vulkanContext.getDevice(), &poolInfo, nullptr, &carDescriptorPool) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create car descriptor pool");
+    // Load GPU resources for car materials
+    const auto& carMaterials = carModelPtr->getMaterials();
+    for (size_t i = 0; i < carMaterials.size(); i++) {
+        uint32_t gpuId    = materialManager->createMaterial(carMaterials[i]);
+        carMaterialIds[i] = gpuId;
     }
-
-    // Initialize MaterialManager descriptor support
-    // MaterialManager will use these to create descriptor sets for materials
-    materialManager->initDescriptorSupport(carDescriptorSetLayout, carDescriptorPool, MAX_FRAMES_IN_FLIGHT);
-
-    // Create descriptor sets for materials that were loaded before descriptor support was initialized
     materialManager->createDescriptorSetsForExistingMaterials();
-}
 
-void Application::updateCarPhysics(float deltaTime) {
-    // Simple driving controls
-    const float acceleration = 5.0f;   // m/s^2
-    const float deceleration = 8.0f;   // m/s^2 (braking)
-    const float maxSpeed     = 15.0f;  // m/s (about 54 km/h)
-    const float friction     = 2.0f;   // m/s^2
-
-    // Forward/backward controls
-    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-        carVelocity += acceleration * deltaTime;
-    }
-    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-        carVelocity -= deceleration * deltaTime;
+    // Create car entity in main scene
+    Scene* scene = sceneManager.getScene("main");
+    if (!scene) {
+        scene = sceneManager.createScene("main");
     }
 
-    // Apply friction when no input
-    if (glfwGetKey(window, GLFW_KEY_UP) != GLFW_PRESS && glfwGetKey(window, GLFW_KEY_W) != GLFW_PRESS &&
-        glfwGetKey(window, GLFW_KEY_DOWN) != GLFW_PRESS && glfwGetKey(window, GLFW_KEY_S) != GLFW_PRESS) {
-        if (carVelocity > 0) {
-            carVelocity -= friction * deltaTime;
-            if (carVelocity < 0)
-                carVelocity = 0;
-        } else if (carVelocity < 0) {
-            carVelocity += friction * deltaTime;
-            if (carVelocity > 0)
-                carVelocity = 0;
-        }
-    }
+    carEntity = sceneManager.createEntity<CarEntity>("car", "main", carAdapter);
 
-    // Clamp velocity
-    carVelocity = glm::clamp(carVelocity, -maxSpeed * 0.5f, maxSpeed);
+    // Build scene graph from glTF hierarchy
+    auto rootHandles = SceneBuilder::buildFromModel(scene, carModelPtr, carMaterialIds);
 
-    // Update car position (move along Z axis, which is forward)
-    carPosition.z += carVelocity * deltaTime;
+    // Use first root as entity root
+    if (!rootHandles.empty()) {
+        carEntity->addNode(rootHandles[0], "car_root");
 
-    // NEW: Update scene entity transform
-    if (playerCar) {
-        // Apply vertical offset relative to the rotation correction
-        // The car model has an internal offset that we dynamically calculated
-        glm::vec3 visualPosition = carPosition;
-        visualPosition.y -= carBottomOffset;
-
-        playerCar->setPosition(visualPosition);
-
-        // Combine rotations: Model orientation fix + Y-axis (steering)
-        glm::vec3 modelRot = carAdapter ? carAdapter->getModelRotation() : glm::vec3(glm::radians(90.0f), 0.0f, 0.0f);
-        glm::quat fixRotation      = glm::quat(glm::vec3(modelRot.x, modelRot.y, modelRot.z));
-        glm::quat yRotation        = glm::angleAxis(glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
-        glm::quat combinedRotation = yRotation * fixRotation;  // Apply fix rotation first, then steering
-
-        playerCar->setRotation(combinedRotation);
-        playerCar->setScale(glm::vec3(1));
-
-        // Animate wheels based on velocity
-        static float wheelRotationAccum = 0.0f;
-        wheelRotationAccum += carVelocity * deltaTime * 10.0f;  // Adjust multiplier for visual appearance
-        glm::quat wheelRot = glm::angleAxis(wheelRotationAccum, glm::vec3(1.0f, 0.0f, 0.0f));
-
-        playerCar->animateRotation("wheel_FL", wheelRot);
-        playerCar->animateRotation("wheel_FR", wheelRot);
-        playerCar->animateRotation("wheel_RL", wheelRot);
-        playerCar->animateRotation("wheel_RR", wheelRot);
-    }
-
-    // Update steering wheel rotation based on A/D keys
-    if (carParts.hasSteeringWheelFront && carParts.hasSteeringWheelBack) {
-        const float maxSteeringAngle = 450.0f;  // degrees (1.25 full rotations)
-        const float steeringSpeed    = 180.0f;  // degrees per second
-        const float returnSpeed      = 360.0f;  // degrees per second
-
-        bool turningLeft =
-            (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS);
-        bool turningRight =
-            (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS);
-
-        if (turningLeft && !turningRight) {
-            steeringWheelRotation += steeringSpeed * deltaTime;
-            steeringWheelRotation = glm::min(steeringWheelRotation, maxSteeringAngle);
-        } else if (turningRight && !turningLeft) {
-            steeringWheelRotation -= steeringSpeed * deltaTime;
-            steeringWheelRotation = glm::max(steeringWheelRotation, -maxSteeringAngle);
-        } else {
-            // Return to center when no input
-            if (steeringWheelRotation > 0.0f) {
-                steeringWheelRotation -= returnSpeed * deltaTime;
-                if (steeringWheelRotation < 0.0f)
-                    steeringWheelRotation = 0.0f;
-            } else if (steeringWheelRotation < 0.0f) {
-                steeringWheelRotation += returnSpeed * deltaTime;
-                if (steeringWheelRotation > 0.0f)
-                    steeringWheelRotation = 0.0f;
+        // Map GLB node names to entity roles using sidecar data
+        if (carAdapter) {
+            for (const auto& roleName : {"steering_wheel",
+                    "wheel_FL", "wheel_FR", "wheel_BL", "wheel_BR",
+                    "hood", "trunk",
+                    "disc_FL", "disc_FR", "disc_BL", "disc_BR"}) {
+                std::string nodeName = carAdapter->getNodeNameForRole(roleName);
+                if (!nodeName.empty()) {
+                    NodeHandle nh = scene->findNode(nodeName);
+                    if (nh.isValid()) {
+                        carEntity->addNode(nh, roleName);
+                    }
+                }
             }
         }
 
-        // NEW: Animate steering wheel in scene entity
-        if (playerCar) {
-            // Steering wheel rotates around Z axis
-            glm::quat steeringRot = glm::angleAxis(glm::radians(steeringWheelRotation), glm::vec3(0.0f, 0.0f, 1.0f));
-            playerCar->animateRotation("steering_wheel_front", steeringRot);
-            playerCar->animateRotation("steering_wheel_back", steeringRot);
+        // Position car on the road
+        SceneNode* carRoot = scene->getNode(rootHandles[0]);
+        if (carRoot) {
+            carRoot->setLocalPosition(glm::vec3(0.0f, 0.0f, 3000.0f));
+            scene->markSubtreeDirty(rootHandles[0]);
         }
     }
 
-    // Update scene manager
-    sceneManager.update(deltaTime);
+    // Initialize cockpit camera
+    carEntity->initCockpitCamera(scene);
 
-    // DEBUG: Log car internal state
-    if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) {
-        Log logger;
-        logger.log("debug", "CarPos: (" + std::to_string(carPosition.x) + ", " + std::to_string(carPosition.y) + ", " +
-                                std::to_string(carPosition.z) + ") | BottomOffset: " + std::to_string(carBottomOffset));
-    }
+    logger.log("info", "Car entity created with " + std::to_string(carMaterials.size()) + " materials");
 }
 
-void Application::updateCameraForCockpit() {
-    // Use CameraEntity to get world-space position and rotation
-    // The CameraEntity automatically follows the car through the scene graph
-    if (!cameraEntity || !playerCar) {
-        // Fallback to old system if camera entity not initialized
-        glm::quat yRotation = glm::angleAxis(glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
+void Application::initCamera() {
+    // Get or create main scene
+    Scene* scene = sceneManager.getScene("main");
+    if (!scene) {
+        scene = sceneManager.createScene("main");
+    }
 
-        glm::vec3 finalOffset;
-        glm::quat finalCamRot;
+    float aspect = static_cast<float>(swapChainManager.getExtent().width) /
+                   static_cast<float>(swapChainManager.getExtent().height);
 
-        const auto& camCfg = carAdapter->getCameraConfig();
-        if (camCfg.hasData) {
-            const auto& cockpit = camCfg.cockpit;
-            finalOffset         = yRotation * cockpit.position;
-            if (cockpit.useQuaternion) {
-                finalCamRot = yRotation * cockpit.rotation;
-            } else {
-                finalCamRot = yRotation * glm::quat(glm::radians(cockpit.eulerRotation));
-            }
-            camera.setCameraTarget(carPosition + finalOffset, finalCamRot);
-        } else {
-            glm::mat4 rotationMatrix = glm::mat4(1.0f);
-            rotationMatrix = glm::rotate(rotationMatrix, glm::radians(carRotation), glm::vec3(0.0f, 1.0f, 0.0f));
-            rotationMatrix = glm::rotate(rotationMatrix, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    // Use cockpit camera if car entity is available
+    if (carEntity && carEntity->getCockpitCamera()) {
+        cameraEntity = carEntity->getCockpitCamera();
+        cameraEntity->setAspectRatio(aspect);
 
-            glm::vec3 rotatedOffset = glm::vec3(rotationMatrix * glm::vec4(cockpitOffset, 0.0f));
-            camera.setPosition(carPosition + rotatedOffset);
-            camera.setYaw(0.0f);
-            camera.setPitch(0.0f);
+        Log logger;
+        logger.log("info", "Cockpit camera initialized (attached to car)");
+    } else {
+        // Fallback: free-fly camera
+        cameraEntity = sceneManager.createEntity<CameraEntity>("free_camera", "main", nullptr);
+        cameraEntity->setAspectRatio(aspect);
+
+        NodeHandle cameraNode = scene->createNode("camera_root");
+        cameraEntity->addNode(cameraNode, "camera_root");
+
+        SceneNode* node = scene->getNode(cameraNode);
+        if (node) {
+            node->setLocalPosition(glm::vec3(0.0f, 2000.0f, 5000.0f));
+            scene->markSubtreeDirty(cameraNode);
         }
-        return;
-    }
 
-    // Use CameraEntity to get world-space position and rotation
-    // This automatically accounts for car position, rotation, and the local offset
-    glm::vec3 worldPos = cameraEntity->getWorldPosition();
-    glm::quat worldRot = cameraEntity->getWorldRotation();
+        CameraEntity::CameraConfig config;
+        config.fov = 75.0f;
+        config.nearPlane = 1.0f;
+        config.farPlane = 10000000.0f;
+        cameraEntity->setConfig(config);
 
-    // DEBUG: Log camera entity world position
-    if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) {
         Log logger;
-        logger.log("debug", "CameraEntity WorldPos: (" + std::to_string(worldPos.x) + ", " +
-                                std::to_string(worldPos.y) + ", " + std::to_string(worldPos.z) + ")");
+        logger.log("info", "Free-flying camera initialized at (0, 2000, 5000)");
     }
 
-    // Ensure the Camera class's internal cockpitOffset doesn't double-offset
-    // since we already have the transformed world position.
-    camera.setCockpitOffset(glm::vec3(0.0f));
-    camera.setCameraTarget(worldPos, worldRot);
+    // Set active scene
+    sceneManager.setActiveScene("main");
 }
 
-void Application::createWindshieldPipeline() {
-    // TODO: Implement windshield pipeline creation
-    // This will be a simple quad rendering pipeline with the windshield shader
+void Application::createScreenRainPipeline() {
+    // Layout: camera UBO only (reuse descriptorSetLayout for set 0)
+    screenRainPipelineLayout =
+        PipelineFactory::createPipelineLayout(vulkanContext.getDevice(), {descriptorSetLayout});
+
+    PipelineConfig config;
+    config.vertShader     = "screen_rain.vert.spv";
+    config.fragShader     = "screen_rain.frag.spv";
+    config.layout         = screenRainPipelineLayout;
+    config.enableBlending    = true;
+    config.enableDepthWrite  = false;
+    config.depthCompareOp    = VK_COMPARE_OP_ALWAYS;  // Overlay ignores depth
+    config.cullMode          = VK_CULL_MODE_NONE;
+    config.noVertexInput     = true;  // Fullscreen triangle from gl_VertexIndex
+
+    screenRainPipeline = PipelineFactory::createPipeline(vulkanContext.getDevice(), config,
+                                                          swapChainManager.getRenderPass(), swapChainManager.getExtent());
 }
 
-void Application::renderWindshield(VkCommandBuffer cmd, uint32_t frameIndex) {
-    // TODO: Implement windshield rendering
-    // This will render a full-screen quad with the windshield effect
-    (void)cmd;
-    (void)frameIndex;
+void Application::createTerrainPipeline() {
+    // Create pipeline layout with camera UBO (set 0) and material textures (set 1)
+    terrainPipelineLayout = PipelineFactory::createPipelineLayout(vulkanContext.getDevice(),
+                                                                  {descriptorSetLayout, materialDescriptorSetLayout});
+
+    // Create pipeline
+    PipelineConfig config;
+    config.vertShader = "terrain.vert.spv";
+    config.fragShader = "terrain.frag.spv";
+    config.layout     = terrainPipelineLayout;
+    config.cullMode   = VK_CULL_MODE_NONE;  // Render both sides of grass
+
+    terrainPipeline = PipelineFactory::createPipeline(vulkanContext.getDevice(), config,
+                                                      swapChainManager.getRenderPass(), swapChainManager.getExtent());
+}
+
+void Application::createTerrain() {
+    // Generate terrain geometry
+    terrainGeometry = new TerrainGeometry();
+
+    // Match terrain to scaled road model bounds (1000x scale, 3x wider road in X)
+    // Road bounds: X [-459,000, +459,000] (153*3000), Z [-25,000,000, +25,000,000]
+    float roadWidth     = 920000.0f;  // ~306*3000, slightly wider than scaled road
+    float terrainWidth  = 500000.0f;  // 500 * 1000, grass on each side of road
+    float terrainLength = 6000000.0f; // 6000 * 1000, terrain along Z
+    float texTileSize   = 10000.0f;   // 10 * 1000, repeat grass texture at scaled interval
+
+    // Center terrain on Z=0 (road extends ±25km, camera starts at Z=5)
+    terrainGeometry->generateCentered(roadWidth, terrainWidth, terrainLength, texTileSize);
+    terrainGeometry->createBuffers(vulkanContext.getDevice(), vulkanContext.getPhysicalDevice(), commandPool,
+                                   vulkanContext.getGraphicsQueue());
+
+    // Load grass texture
+    Material grassMaterial;
+    grassMaterial.name             = "grass";
+    grassMaterial.baseColorTexture = "assets/textures/grass/grass_diff.jpg";
+    grassMaterialId                = materialManager->createMaterial(grassMaterial);
+
+    Log logger;
+    logger.log("info", "Terrain created with " + std::to_string(terrainGeometry->getIndexCount() / 3) + " triangles");
 }
 
 }  // namespace DownPour

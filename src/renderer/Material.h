@@ -133,11 +133,11 @@ struct MaterialDispatcher {
  * Managed by MaterialManager, not exposed to external code.
  */
 struct VulkanMaterialResources {
-    TextureHandle                   baseColor;
-    TextureHandle                   normalMap;
-    TextureHandle                   metallicRoughness;
-    TextureHandle                   emissive;
-    std::vector<VkDescriptorSet>    descriptorSets;  // Per-frame descriptor sets
+    TextureHandle                baseColor;
+    TextureHandle                normalMap;
+    TextureHandle                metallicRoughness;
+    TextureHandle                emissive;
+    std::vector<VkDescriptorSet> descriptorSets;  // Per-frame descriptor sets
 
     bool hasAnyTextures() const {
         return baseColor.isValid() || normalMap.isValid() || metallicRoughness.isValid() || emissive.isValid();
@@ -248,7 +248,7 @@ private:
 
     std::unordered_map<uint32_t, VulkanMaterialResources> resources;
     std::unordered_map<uint32_t, MaterialProperties>      properties;
-    uint32_t                                              nextMaterialId;
+    uint32_t                                              nextMaterialId = 0;
 
     // Default textures for materials without specific textures
     TextureHandle defaultWhiteTexture;

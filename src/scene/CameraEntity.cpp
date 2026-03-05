@@ -1,24 +1,40 @@
 // SPDX-License-Identifier: MIT
 #include "CameraEntity.h"
 
+#include "../renderer/ModelAdapter.h"
+#include "Scene.h"
+#include "SceneNode.h"
+
 #define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/quaternion.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <GLFW/glfw3.h>
 
 namespace DownPour {
 using namespace DownPour::Types;
 
+CameraEntity::CameraEntity(const str& name, Scene* scene, ModelAdapter* configSource)
+    : Entity(name, scene), configSource(configSource) {
+    // If configSource provided, initialize config from it
+    if (configSource) {
+        const auto& camCfg = configSource->getCameraConfig();
+        if (camCfg.hasData) {
+            config.fov = camCfg.cockpit.fov;
+            config.nearPlane = camCfg.cockpit.nearPlane;
+            config.farPlane = camCfg.cockpit.farPlane;
+        }
+    }
+}
+
 Vec3 CameraEntity::getWorldPosition() const {
-    Scene* scenePtr = getScene();
-    if (!scenePtr || !getRootNode().isValid()) {
-        return config.localOffset;
+    if (!getRootNode().isValid() || !getScene()) {
+        return Vec3(0.0f);
     }
 
-    // Get the camera node's world transform
-    const SceneNode* node = scenePtr->getNode(getRootNode());
+    const SceneNode* node = getScene()->getNode(getRootNode());
     if (!node) {
-        return config.localOffset;
+        return Vec3(0.0f);
     }
 
     // Extract position from world transform
@@ -26,22 +42,18 @@ Vec3 CameraEntity::getWorldPosition() const {
 }
 
 Quat CameraEntity::getWorldRotation() const {
-    Scene* scenePtr = getScene();
-    if (!scenePtr || !getRootNode().isValid()) {
-        return config.localRotation;
+    if (!getRootNode().isValid() || !getScene()) {
+        return Quat(1.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    // Get the camera node's world transform
-    const SceneNode* node = scenePtr->getNode(getRootNode());
+    const SceneNode* node = getScene()->getNode(getRootNode());
     if (!node) {
-        return config.localRotation;
+        return Quat(1.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    // Extract rotation from world transform
-    Vec3 scale;
+    // Decompose world transform to extract rotation
+    Vec3 scale, translation, skew;
     Quat rotation;
-    Vec3 translation;
-    Vec3 skew;
     Vec4 perspective;
     glm::decompose(node->worldTransform, scale, rotation, translation, skew, perspective);
 
@@ -49,53 +61,108 @@ Quat CameraEntity::getWorldRotation() const {
 }
 
 Vec3 CameraEntity::getWorldForward() const {
-    Quat worldRot = getWorldRotation();
-    // Forward is -Z in camera space
-    return glm::rotate(worldRot, Vec3(0.0f, 0.0f, -1.0f));
+    Quat rotation = getWorldRotation();
+    return rotation * Vec3(0.0f, 0.0f, -1.0f);  // Forward is -Z
 }
 
 Vec3 CameraEntity::getWorldUp() const {
-    Quat worldRot = getWorldRotation();
-    // Up is +Y in camera space
-    return glm::rotate(worldRot, Vec3(0.0f, 1.0f, 0.0f));
+    Quat rotation = getWorldRotation();
+    return rotation * Vec3(0.0f, 1.0f, 0.0f);  // Up is +Y
 }
 
 Vec3 CameraEntity::getWorldRight() const {
-    Quat worldRot = getWorldRotation();
-    // Right is +X in camera space
-    return glm::rotate(worldRot, Vec3(1.0f, 0.0f, 0.0f));
+    Quat rotation = getWorldRotation();
+    return rotation * Vec3(1.0f, 0.0f, 0.0f);  // Right is +X
 }
 
-void CameraEntity::attachToParent(Entity* parent) {
-    if (!parent || !parent->getScene()) {
-        return;
-    }
+Mat4 CameraEntity::getViewMatrix() const {
+    Vec3 position = getWorldPosition();
+    Vec3 forward = getWorldForward();
+    Vec3 up = getWorldUp();
 
-    parentEntity = parent;
-    Scene* scenePtr = parent->getScene();
+    return glm::lookAt(position, position + forward, up);
+}
 
-    // Create a camera node as a child of the parent's root
-    NodeHandle parentRoot = parent->getRootNode();
-    if (!parentRoot.isValid()) {
-        return;
-    }
+Mat4 CameraEntity::getProjectionMatrix() const {
+    return glm::perspective(glm::radians(config.fov), aspectRatio, config.nearPlane, config.farPlane);
+}
 
-    // Create the camera node
-    NodeHandle cameraNode = scenePtr->createNode(getName() + "_camera_node", parentRoot);
-    if (!cameraNode.isValid()) {
-        return;
-    }
+void CameraEntity::processInput(GLFWwindow* window, float deltaTime) {
+    Scene* scene = getScene();
+    if (!scene || !getRootNode().isValid()) return;
 
-    // Set the local transform from offset and rotation
-    SceneNode* node = scenePtr->getNode(cameraNode);
-    if (node) {
-        node->setLocalPosition(config.localOffset);
-        node->setLocalRotation(config.localRotation);
-        scenePtr->markSubtreeDirty(cameraNode);
-    }
+    SceneNode* node = scene->getNode(getRootNode());
+    if (!node) return;
 
-    // Store as our root node
-    addNode(cameraNode, "camera_root");
+    Vec3 position = node->localPosition;
+    Vec3 forward = getWorldForward();
+    Vec3 right = getWorldRight();
+    Vec3 up(0.0f, 1.0f, 0.0f);  // World up
+
+    float velocity = movementSpeed * deltaTime;
+
+    // WASD movement
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        position += forward * velocity;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        position -= forward * velocity;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        position -= right * velocity;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        position += right * velocity;
+
+    // Vertical movement
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+        position += up * velocity;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+        position -= up * velocity;
+
+    node->localPosition = position;
+    scene->markSubtreeDirty(getRootNode());
+}
+
+void CameraEntity::processMouseMovement(float xoffset, float yoffset) {
+    const float sensitivity = 0.1f;
+    xoffset *= sensitivity;
+    yoffset *= sensitivity;
+
+    yaw += xoffset;
+    pitch -= yoffset;  // Inverted Y
+
+    // Constrain pitch to prevent gimbal lock
+    pitch = glm::clamp(pitch, -89.0f, 89.0f);
+
+    // Update camera rotation in scene graph
+    Scene* scene = getScene();
+    if (!scene || !getRootNode().isValid()) return;
+
+    SceneNode* node = scene->getNode(getRootNode());
+    if (!node) return;
+
+    // Convert pitch/yaw to quaternion
+    Quat pitchQuat = glm::angleAxis(glm::radians(pitch), Vec3(1.0f, 0.0f, 0.0f));
+    Quat yawQuat = glm::angleAxis(glm::radians(yaw), Vec3(0.0f, 1.0f, 0.0f));
+    Quat rotation = yawQuat * pitchQuat;
+
+    node->localRotation = rotation;
+    scene->markSubtreeDirty(getRootNode());
+}
+
+void CameraEntity::setInitialOrientation(float yawDeg, float pitchDeg) {
+    yaw = yawDeg;
+    pitch = glm::clamp(pitchDeg, -89.0f, 89.0f);
+
+    // Apply to node so the camera is oriented correctly before any mouse movement
+    Scene* scene = getScene();
+    if (!scene || !getRootNode().isValid()) return;
+
+    SceneNode* node = scene->getNode(getRootNode());
+    if (!node) return;
+
+    Quat pitchQuat = glm::angleAxis(glm::radians(pitch), Vec3(1.0f, 0.0f, 0.0f));
+    Quat yawQuat = glm::angleAxis(glm::radians(yaw), Vec3(0.0f, 1.0f, 0.0f));
+    node->localRotation = yawQuat * pitchQuat;
+    scene->markSubtreeDirty(getRootNode());
 }
 
 }  // namespace DownPour

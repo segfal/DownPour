@@ -32,8 +32,8 @@ void ResourceManager::createBuffer(VkDevice device, VkPhysicalDevice physicalDev
     vkBindBufferMemory(device, buffer, bufferMemory, 0);
 }
 
-void ResourceManager::copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue,
-                                 VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
+void ResourceManager::copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue, VkBuffer srcBuffer,
+                                 VkBuffer dstBuffer, VkDeviceSize size) {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -104,7 +104,7 @@ void ResourceManager::createImage(VkDevice device, VkPhysicalDevice physicalDevi
 }
 
 uint32_t ResourceManager::findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter,
-                                        VkMemoryPropertyFlags properties) {
+                                         VkMemoryPropertyFlags properties) {
     VkPhysicalDeviceMemoryProperties memProperties;
     vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
 
@@ -118,7 +118,7 @@ uint32_t ResourceManager::findMemoryType(VkPhysicalDevice physicalDevice, uint32
 }
 
 VkFormat ResourceManager::findSupportedFormat(VkPhysicalDevice physicalDevice, const std::vector<VkFormat>& candidates,
-                                             VkImageTiling tiling, VkFormatFeatureFlags features) {
+                                              VkImageTiling tiling, VkFormatFeatureFlags features) {
     for (VkFormat format : candidates) {
         VkFormatProperties props;
         vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
@@ -135,8 +135,8 @@ VkFormat ResourceManager::findSupportedFormat(VkPhysicalDevice physicalDevice, c
 
 VkFormat ResourceManager::findDepthFormat(VkPhysicalDevice physicalDevice) {
     return findSupportedFormat(physicalDevice,
-                              {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-                              VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+                               {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+                               VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
 }  // namespace DownPour

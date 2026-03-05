@@ -34,11 +34,24 @@ VkPipeline PipelineFactory::createPipeline(VkDevice device, const PipelineConfig
     auto attributeDescriptions = Vertex::getAttributeDescriptions();
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount   = 1;
-    vertexInputInfo.pVertexBindingDescriptions      = &bindingDescription;
-    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-    vertexInputInfo.pVertexAttributeDescriptions    = attributeDescriptions.data();
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+    if (config.noVertexInput) {
+        vertexInputInfo.vertexBindingDescriptionCount   = 0;
+        vertexInputInfo.pVertexBindingDescriptions      = nullptr;
+        vertexInputInfo.vertexAttributeDescriptionCount = 0;
+        vertexInputInfo.pVertexAttributeDescriptions    = nullptr;
+    } else if (!config.customBindings.empty()) {
+        vertexInputInfo.vertexBindingDescriptionCount   = static_cast<uint32_t>(config.customBindings.size());
+        vertexInputInfo.pVertexBindingDescriptions      = config.customBindings.data();
+        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(config.customAttributes.size());
+        vertexInputInfo.pVertexAttributeDescriptions    = config.customAttributes.data();
+    } else {
+        vertexInputInfo.vertexBindingDescriptionCount   = 1;
+        vertexInputInfo.pVertexBindingDescriptions      = &bindingDescription;
+        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+        vertexInputInfo.pVertexAttributeDescriptions    = attributeDescriptions.data();
+    }
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -83,7 +96,7 @@ VkPipeline PipelineFactory::createPipeline(VkDevice device, const PipelineConfig
     depthStencil.sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depthStencil.depthTestEnable       = VK_TRUE;
     depthStencil.depthWriteEnable      = config.enableDepthWrite ? VK_TRUE : VK_FALSE;
-    depthStencil.depthCompareOp        = VK_COMPARE_OP_LESS;
+    depthStencil.depthCompareOp        = config.depthCompareOp;
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable     = VK_FALSE;
 
@@ -137,7 +150,7 @@ VkPipeline PipelineFactory::createPipeline(VkDevice device, const PipelineConfig
     return pipeline;
 }
 
-VkPipelineLayout PipelineFactory::createPipelineLayout(VkDevice device,
+VkPipelineLayout PipelineFactory::createPipelineLayout(VkDevice                                  device,
                                                        const std::vector<VkDescriptorSetLayout>& descriptorLayouts) {
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -147,6 +160,24 @@ VkPipelineLayout PipelineFactory::createPipelineLayout(VkDevice device,
     VkPipelineLayout pipelineLayout;
     if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create pipeline layout");
+    }
+
+    return pipelineLayout;
+}
+
+VkPipelineLayout PipelineFactory::createPipelineLayoutWithPushConstants(
+    VkDevice device, const std::vector<VkDescriptorSetLayout>& descriptorLayouts,
+    const std::vector<VkPushConstantRange>& pushConstantRanges) {
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount         = static_cast<uint32_t>(descriptorLayouts.size());
+    pipelineLayoutInfo.pSetLayouts            = descriptorLayouts.data();
+    pipelineLayoutInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
+    pipelineLayoutInfo.pPushConstantRanges    = pushConstantRanges.data();
+
+    VkPipelineLayout pipelineLayout;
+    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create pipeline layout with push constants");
     }
 
     return pipelineLayout;
@@ -174,7 +205,8 @@ std::vector<char> PipelineFactory::readFile(const std::string& filename) {
 
     for (const auto& path : candidates) {
         std::ifstream file(path, std::ios::ate | std::ios::binary);
-        if (!file.is_open()) continue;
+        if (!file.is_open())
+            continue;
         const size_t      fileSize = static_cast<size_t>(file.tellg());
         std::vector<char> buffer(fileSize);
         file.seekg(0);

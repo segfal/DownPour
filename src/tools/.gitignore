@@ -1,6 +1,0 @@
-models/*
-__pycache__/*
-.venv/*
-uv.lock
-SceneEditor/target
-*.example

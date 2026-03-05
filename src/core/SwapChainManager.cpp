@@ -1,8 +1,8 @@
 #include "SwapChainManager.h"
 
-#include <stdexcept>
 #include <algorithm>
 #include <array>
+#include <stdexcept>
 
 namespace DownPour {
 
@@ -21,7 +21,7 @@ void SwapChainManager::cleanup(VkDevice device) {
     swapchainFramebuffers.clear();
 
     for (auto imageView : swapchainImageViews) {
-        vkDestroyImageView(device, imageView, nullptr); 
+        vkDestroyImageView(device, imageView, nullptr);
     }
     swapchainImageViews.clear();
 
@@ -36,8 +36,8 @@ void SwapChainManager::cleanup(VkDevice device) {
     }
 }
 
-void SwapChainManager::createSwapChain(VkDevice device, VkPhysicalDevice physicalDevice,
-                                       VkSurfaceKHR surface, GLFWwindow* window) {
+void SwapChainManager::createSwapChain(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
+                                       GLFWwindow* window) {
     Vulkan::SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice, surface);
 
     VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
@@ -87,8 +87,8 @@ void SwapChainManager::createImageViews(VkDevice device) {
     view.sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view.viewType   = VK_IMAGE_VIEW_TYPE_2D;
     view.format     = swapchainImageFormat;
-    view.components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
-                      VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
+    view.components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                       VK_COMPONENT_SWIZZLE_IDENTITY};
     view.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
     view.subresourceRange.baseMipLevel   = 0;
     view.subresourceRange.levelCount     = 1;
@@ -234,12 +234,12 @@ VkExtent2D SwapChainManager::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& ca
         VkExtent2D actualExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 
         actualExtent.width  = std::max(capabilities.minImageExtent.width,
-                                      std::min(capabilities.maxImageExtent.width, actualExtent.width));
+                                       std::min(capabilities.maxImageExtent.width, actualExtent.width));
         actualExtent.height = std::max(capabilities.minImageExtent.height,
-                                      std::min(capabilities.maxImageExtent.height, actualExtent.height));
+                                       std::min(capabilities.maxImageExtent.height, actualExtent.height));
 
         return actualExtent;
     }
 }
 
-} // namespace DownPour
+}  // namespace DownPour

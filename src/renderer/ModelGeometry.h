@@ -1,8 +1,9 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
-#include <vector>
+
 #include <cstdint>
+#include <vector>
 
 namespace DownPour {
 
@@ -17,7 +18,7 @@ struct Vertex;
  */
 class ModelGeometry {
 public:
-    ModelGeometry() = default;
+    ModelGeometry()  = default;
     ~ModelGeometry() = default;
 
     /**
@@ -30,12 +31,8 @@ public:
      * @param commandPool Command pool for buffer transfer operations
      * @param graphicsQueue Graphics queue for command submission
      */
-    void createBuffers(const std::vector<Vertex>& vertices,
-                      const std::vector<uint32_t>& indices,
-                      VkDevice device,
-                      VkPhysicalDevice physicalDevice,
-                      VkCommandPool commandPool,
-                      VkQueue graphicsQueue);
+    void createBuffers(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, VkDevice device,
+                       VkPhysicalDevice physicalDevice, VkCommandPool commandPool, VkQueue graphicsQueue);
 
     /**
      * @brief Clean up Vulkan buffer resources
@@ -49,24 +46,19 @@ public:
     uint32_t getIndexCount() const { return indexCount; }
 
 private:
-    VkBuffer vertexBuffer = VK_NULL_HANDLE;
+    VkBuffer       vertexBuffer       = VK_NULL_HANDLE;
     VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
-    VkBuffer indexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
-    uint32_t indexCount = 0;
+    VkBuffer       indexBuffer        = VK_NULL_HANDLE;
+    VkDeviceMemory indexBufferMemory  = VK_NULL_HANDLE;
+    uint32_t       indexCount         = 0;
 
-    void createBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
-                     VkDeviceSize size, VkBufferUsageFlags usage,
-                     VkMemoryPropertyFlags properties,
-                     VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+    void createBuffer(VkDevice device, VkPhysicalDevice physicalDevice, VkDeviceSize size, VkBufferUsageFlags usage,
+                      VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
 
-    void copyBuffer(VkDevice device, VkCommandPool commandPool,
-                   VkQueue graphicsQueue, VkBuffer srcBuffer,
-                   VkBuffer dstBuffer, VkDeviceSize size);
+    void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue, VkBuffer srcBuffer,
+                    VkBuffer dstBuffer, VkDeviceSize size);
 
-    uint32_t findMemoryType(VkPhysicalDevice physicalDevice,
-                           uint32_t typeFilter,
-                           VkMemoryPropertyFlags properties);
+    uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
 };
 
-} // namespace DownPour
+}  // namespace DownPour

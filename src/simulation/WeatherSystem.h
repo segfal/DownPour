@@ -1,112 +1,64 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include <vulkan/vulkan.h>
-
-#include <glm/glm.hpp>
 #include <vector>
+#include <glm/glm.hpp>
 
 namespace DownPour {
 namespace Simulation {
 
-/**
- * @brief Raindrop particle structure
- */
 struct Raindrop {
-    glm::vec3 position;  // Current position
-    glm::vec3 velocity;  // Fall velocity
-    float     lifetime;  // Time alive
-    float     size;      // Droplet size
-    bool      active;    // Is this drop alive?
+    glm::vec3 position;
+    glm::vec3 velocity;
+    float lifetime;
+    float size;
+    bool active;
 };
 
-/**
- * @brief Weather system managing rain simulation and atmospheric conditions
- *
- * This class provides the foundation for weather state management and rain effects.
- * Current implementation supports toggling between Sunny and Rainy states.
- * Future enhancements will include rain particle systems and windshield effects.
- */
+struct RainParams {
+    uint32_t maxDrops;
+    float spawnRate;        // drops per second
+    float dropSpeed;        // base downward speed (m/s, positive)
+    glm::vec3 wind;         // wind velocity (m/s)
+    float fogDensity;       // Beer-Lambert fog coefficient
+    float targetWetness;    // surface wetness at this level [0,1]
+    float rainIntensity;    // shader intensity [0,1]
+    float skyDarkening;     // sky overcast factor [0,1]
+};
+
 class WeatherSystem {
 public:
-    /**
-     * @brief Weather state enumeration
-     */
-    enum class WeatherState { Sunny, Rainy };
+    enum class WeatherState { Sunny, LowRain, HeavyRain, SevereRain };
+
+    static constexpr uint32_t MAX_DROPS = 25000;
 
     WeatherSystem();
     ~WeatherSystem() = default;
 
-    /**
-     * @brief Toggle between weather states
-     *
-     * Switches between Sunny and Rainy states. This is typically called
-     * when the user presses the 'R' key.
-     */
-    void toggleWeather();
+    void cycleWeather();
+    void update(float deltaTime, const glm::vec3& cameraPosition);
 
-    /**
-     * @brief Get current weather state
-     * @return Current weather state (Sunny or Rainy)
-     */
-    WeatherState getWeatherState() const { return currentState; }
-
-    /**
-     * @brief Set weather state directly
-     * @param state The weather state to set
-     */
-    void setWeatherState(WeatherState state) { currentState = state; }
-
-    /**
-     * @brief Check if it's currently raining
-     * @return true if weather state is Rainy, false otherwise
-     */
-    bool isRaining() const { return currentState == WeatherState::Rainy; }
-
-    /**
-     * @brief Update weather system state
-     * @param deltaTime Time since last update in seconds
-     */
-    void update(float deltaTime);
-
-    /**
-     * @brief Render rain particles
-     * @param cmd Command buffer for recording render commands
-     * @param layout Pipeline layout
-     * @param frameIndex Current frame index
-     */
-    void render(VkCommandBuffer cmd, VkPipelineLayout layout, uint32_t frameIndex);
-
-    /**
-     * @brief Get active raindrops
-     * @return Vector of active raindrops
-     */
-    const std::vector<Raindrop>& getActiveDrops() const { return raindrops; }
+    WeatherState getState() const { return currentState; }
+    float getRainIntensity() const;
+    float getWetness() const { return currentWetness; }
+    float getFogDensity() const;
+    glm::vec3 getWind() const;
+    float getSkyDarkening() const;
+    uint32_t getActiveDropCount() const { return activeDropCount; }
+    const std::vector<Raindrop>& getDrops() const { return drops; }
+    const char* getStateName() const;
 
 private:
-    WeatherState currentState;
+    WeatherState currentState = WeatherState::Sunny;
+    std::vector<Raindrop> drops;
+    uint32_t activeDropCount = 0;
+    float currentWetness = 0.0f;
+    float spawnAccumulator = 0.0f;
 
-    // Rain particle system
-    std::vector<Raindrop>   raindrops;
-    static constexpr size_t MAX_RAINDROPS = 5000;
-    float                   spawnTimer    = 0.0f;
-    float                   spawnRate     = 0.01f;  // Seconds between spawns
+    static const RainParams PARAMS[];
 
-    /**
-     * @brief Spawn a new raindrop
-     */
-    void spawnRaindrop();
-
-    /**
-     * @brief Update all raindrops
-     * @param deltaTime Time since last update
-     */
-    void updateRaindrops(float deltaTime);
-
-    /**
-     * @brief Remove inactive raindrops
-     */
-    void cleanupInactiveDrops();
+    const RainParams& getCurrentParams() const;
+    void recycleDrop(Raindrop& drop, const glm::vec3& cameraPosition);
 };
 
 }  // namespace Simulation
